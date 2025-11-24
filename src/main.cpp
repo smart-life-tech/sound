@@ -58,7 +58,9 @@ AudioConnection patchCord1(fmMod, 0, fmCar, 0);
 AudioConnection patchCord2(fmCar, 0, fmEnv, 0);
 AudioConnection patchCord3(fmEnv, 0, mixer, 0);
 
-AudioConnection patchCord4(ks, 0, mixer, 1);
+AudioFilterStateVariable ksFilter;
+AudioConnection patchCordKS(ks, 0, ksFilter, 0);
+AudioConnection patchCordKSOut(ksFilter, 0, mixer, 1); // LP out to mixer
 
 AudioConnection patchCord5(noise1, 0, noiseEnv, 0);
 AudioConnection patchCord6(noiseEnv, 0, mixer, 2);
@@ -165,6 +167,25 @@ float noiseAmpFromVelocity(float velNorm, bool rimHit)
     base *= 1.2f;
   return clampf(base, 0.0f, 1.0f);
 }
+// Controls tone & decay of KS via external lowpass filter
+void setKSDamping(uint16_t fsr, float velNorm)
+{
+  // map FSR (0..4095) → cutoff 500..6000 Hz
+  float fsrN = (float)fsr / 4095.0f;
+
+  float cutoff = 600.0f + (1.0f - fsrN) * 5400.0f; // low fsr = long ring
+  float brightness = velNorm * 800.0f;             // velocity adds brightness
+
+  float finalCutoff = cutoff + brightness;
+  if (finalCutoff > 8000.0f)
+    finalCutoff = 8000.0f;
+
+  ksFilter.frequency(finalCutoff);
+
+  // resonance Q controls decay speed
+  float q = 1.0f + fsrN * 3.0f; // more FSR = tighter/shorter
+  ksFilter.resonance(q);
+}
 
 // Start FM pitch envelope (pitch drop)
 void startPitchEnv(float startFreq, float endFreq, uint32_t durMs)
@@ -245,12 +266,13 @@ void triggerDrum(uint16_t peakC, uint16_t peakR, float flex, uint16_t fsr)
   float noteFreq = gNotes[noteIndex];
 
   // FSR -> damping / decay only
-  float damping = fsrToDamping(fsr, velN);
+  // float damping = fsrToDamping(fsr, velN);
 
   // ---------------- KS BODY ----------------
   ks.noteOff(1.0f); // kill previous
-  float ksFilt = ksFilterFromFSR(fsr, velN);
-  ks.filterFrequency(ksFilt);
+
+  // Set decay/tone
+  setKSDamping(fsr, velN);
 
   float ksVel = 0.3f + velN * 0.7f; // 0.3..1.0
   ks.noteOn(noteFreq, ksVel);
