@@ -249,7 +249,9 @@ void triggerDrum(uint16_t peakC, uint16_t peakR, float flex, uint16_t fsr)
 
   // ---------------- KS BODY ----------------
   ks.noteOff(1.0f); // kill previous
-  ks.damping(damping);
+  float ksFilt = ksFilterFromFSR(fsr, velN);
+  ks.filterFrequency(ksFilt);
+
   float ksVel = 0.3f + velN * 0.7f; // 0.3..1.0
   ks.noteOn(noteFreq, ksVel);
 
