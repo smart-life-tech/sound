@@ -248,7 +248,7 @@ void piezoISR()
   Serial.print(" Flex Raw:");
   Serial.println(flexRaw);
   smoothedFlex += FLEX_SMOOTH_ALPHA * (flexRaw - smoothedFlex);
-  vTaskDelay(pdMS_TO_TICKS(200));
+  //vTaskDelay(pdMS_TO_TICKS(200));
 }
 
 // ------------------- TRIGGER DRUM -------------------
