@@ -35,7 +35,7 @@
 #define FLEX_SMOOTH_ALPHA 0.24f
 #define FLEX_EXPONENT 1.85f
 
-#define PIEZO_SAMPLE_INTERVAL_US 200 // 5 kHz ISR
+#define PIEZO_SAMPLE_INTERVAL_US 500 // 5 kHz ISR
 
 // ------------------- AUDIO OBJECTS -------------------
 // FM attack
@@ -248,7 +248,7 @@ void piezoISR()
   Serial.print(" Flex Raw:");
   Serial.println(flexRaw);
   smoothedFlex += FLEX_SMOOTH_ALPHA * (flexRaw - smoothedFlex);
-  vTaskDelay(pdMS_TO_TICKS(1000));
+  vTaskDelay(pdMS_TO_TICKS(200));
 }
 
 // ------------------- TRIGGER DRUM -------------------
@@ -360,7 +360,7 @@ void PlayTask(void *pvParameters)
     triggerDrum(peakC, peakR, flexLocal, fsr);
 
     // Small yield
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    vTaskDelay(pdMS_TO_TICKS(500));
   }
 }
 
@@ -417,5 +417,5 @@ void loop()
 {
   // Update pitch envelope at low rate
   updatePitchEnv();
-  vTaskDelay(pdMS_TO_TICKS(5000)); // ~500 Hz control rate
+  vTaskDelay(pdMS_TO_TICKS(1000)); // ~500 Hz control rate
 }
