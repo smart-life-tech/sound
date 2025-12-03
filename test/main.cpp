@@ -1,0 +1,421 @@
+/*
+   Teensy 4.x HYBRID DRUM SYNTH
+   - FM attack (with pitch drop)
+   - Karplus–Strong resonant body
+   - Noise burst transient
+   - Center vs Rim: different note blocks & timbre
+   - Flex: selects 1-of-4 notes inside block
+   - FSR: attenuation/decay only
+   - Piezo ISR + FreeRTOS PlayTask
+*/
+
+#include <Arduino.h>
+#include <Audio.h>
+#include <FreeRTOS.h>
+#include <task.h>
+#include <math.h>
+
+#define analogReadFast(pin) analogRead(pin)
+
+// ------------------- PINS -------------------
+#define PIEZO_CENTER_PIN A0
+#define PIEZO_RIM_PIN A3
+#define FLEX_PIN A1
+#define FSR_PIN A2
+
+// ------------------- CONFIG -------------------
+#define ANALOG_RESOLUTION_BITS 12
+#define ADC_MAX 4095
+
+#define PIEZO_THRESHOLD 600
+#define PIEZO_DEBOUNCE_MS 10
+
+#define FLEX_MIN 250
+#define FLEX_MAX 3800
+#define FLEX_SMOOTH_ALPHA 0.24f
+#define FLEX_EXPONENT 1.85f
+
+#define PIEZO_SAMPLE_INTERVAL_US 1000000 // 5 kHz ISR
+
+// ------------------- AUDIO OBJECTS -------------------
+// FM attack
+AudioSynthWaveform fmMod;
+AudioSynthWaveformModulated fmCar;
+AudioEffectEnvelope fmEnv;
+
+// Karplus–Strong body
+AudioSynthKarplusStrong ks;
+
+// Noise transient
+AudioSynthNoiseWhite noise1;
+AudioEffectEnvelope noiseEnv;
+
+// Mixer & output
+AudioMixer4 mixer;
+AudioOutputI2S audioOut;
+
+AudioConnection patchCord1(fmMod, 0, fmCar, 0);
+AudioConnection patchCord2(fmCar, 0, fmEnv, 0);
+AudioConnection patchCord3(fmEnv, 0, mixer, 0);
+
+AudioFilterStateVariable ksFilter;
+AudioConnection patchCordKS(ks, 0, ksFilter, 0);
+AudioConnection patchCordKSOut(ksFilter, 0, mixer, 1); // LP out to mixer
+
+AudioConnection patchCord5(noise1, 0, noiseEnv, 0);
+AudioConnection patchCord6(noiseEnv, 0, mixer, 2);
+
+AudioConnection patchCord7(mixer, 0, audioOut, 0);
+AudioConnection patchCord8(mixer, 0, audioOut, 1);
+
+AudioControlSGTL5000 audioShield;
+
+// ------------------- GLOBAL STATE -------------------
+IntervalTimer piezoTimer;
+TaskHandle_t PlayTaskHandle = NULL;
+
+volatile uint16_t piezoCenterPeak = 0;
+volatile uint16_t piezoRimPeak = 0;
+volatile uint32_t lastHitMs = 0;
+volatile float smoothedFlex = 0.0f;
+
+// 8 notes C4 → C5
+float gNotes[8] = {
+    261.63f, // C4
+    293.66f, // D4
+    329.63f, // E4
+    349.23f, // F4
+    392.00f, // G4
+    440.00f, // A4
+    493.88f, // B4
+    523.25f  // C5
+};
+
+// ------------ Pitch Envelope for FM carrier ------------
+struct PitchEnvState
+{
+  bool active;
+  float startFreq;
+  float endFreq;
+  uint32_t startMs;
+  uint32_t durMs;
+};
+
+PitchEnvState gPitchEnv = {false, 0, 0, 0, 0};
+
+// ------------------- HELPERS -------------------
+static inline float clampf(float v, float lo, float hi)
+{
+  return (v < lo) ? lo : (v > hi) ? hi
+                                  : v;
+}
+
+static inline int clampi(int v, int lo, int hi)
+{
+  return (v < lo) ? lo : (v > hi) ? hi
+                                  : v;
+}
+
+static inline float mapf(float x, float inMin, float inMax, float outMin, float outMax)
+{
+  return outMin + (outMax - outMin) * ((x - inMin) / (inMax - inMin));
+}
+
+// 0..1 velocity from peak
+float velocityNorm(uint16_t peak)
+{
+  if (peak <= PIEZO_THRESHOLD)
+    return 0.0f;
+  float n = (float)(peak - PIEZO_THRESHOLD) / (float)(ADC_MAX - PIEZO_THRESHOLD);
+  return clampf(n, 0.0f, 1.0f);
+}
+
+// Flex → 0..3 index
+int flexToIndex(float flex)
+{
+  float c = clampf(flex, FLEX_MIN, FLEX_MAX);
+  float n = (c - FLEX_MIN) / (FLEX_MAX - FLEX_MIN); // 0..1
+  float curved = powf(n, FLEX_EXPONENT);            // exponential feel
+  int idx = (int)(curved * 3.999f);                 // 0..3
+  return clampi(idx, 0, 3);
+}
+
+// FSR → KS damping (0.1 resonant, 0.95 dead), then adjust by velocity for brightness
+float fsrToDamping(uint16_t fsr, float velNorm)
+{
+  float fsrN = (float)fsr / (float)ADC_MAX;
+  float baseD = 0.2f + fsrN * 0.75f; // 0.2..0.95
+  float bright = velNorm * 0.2f;     // brighter at higher vel
+  float d = baseD - bright;          // high vel -> smaller damping -> brighter
+  return clampf(d, 0.1f, 0.95f);
+}
+
+// FM index from velocity + rim/center
+float fmIndexFromVelocity(float velNorm, bool rimHit)
+{
+  float base = 60.0f + velNorm * 320.0f; // 60..380
+  if (rimHit)
+    base *= 1.25f; // rim brighter
+  return base;
+}
+
+// Noise amplitude from velocity + rim/center
+float noiseAmpFromVelocity(float velNorm, bool rimHit)
+{
+  float base = 0.2f + velNorm * 0.5f; // 0.2..0.7
+  if (rimHit)
+    base *= 1.2f;
+  return clampf(base, 0.0f, 1.0f);
+}
+// Controls tone & decay of KS via external lowpass filter
+void setKSDamping(uint16_t fsr, float velNorm)
+{
+  // map FSR (0..4095) → cutoff 500..6000 Hz
+  float fsrN = (float)fsr / 4095.0f;
+
+  float cutoff = 600.0f + (1.0f - fsrN) * 5400.0f; // low fsr = long ring
+  float brightness = velNorm * 800.0f;             // velocity adds brightness
+
+  float finalCutoff = cutoff + brightness;
+  if (finalCutoff > 8000.0f)
+    finalCutoff = 8000.0f;
+
+  ksFilter.frequency(finalCutoff);
+
+  // resonance Q controls decay speed
+  float q = 1.0f + fsrN * 3.0f; // more FSR = tighter/shorter
+  ksFilter.resonance(q);
+}
+
+// Start FM pitch envelope (pitch drop)
+void startPitchEnv(float startFreq, float endFreq, uint32_t durMs)
+{
+  gPitchEnv.active = true;
+  gPitchEnv.startFreq = startFreq;
+  gPitchEnv.endFreq = endFreq;
+  gPitchEnv.startMs = millis();
+  gPitchEnv.durMs = durMs;
+  fmCar.frequency(startFreq);
+}
+
+// Update pitch envelope in loop()
+void updatePitchEnv()
+{
+  if (!gPitchEnv.active)
+    return;
+  uint32_t now = millis();
+  uint32_t elapsed = now - gPitchEnv.startMs;
+  if (elapsed >= gPitchEnv.durMs)
+  {
+    fmCar.frequency(gPitchEnv.endFreq);
+    gPitchEnv.active = false;
+    return;
+  }
+  float t = (float)elapsed / (float)gPitchEnv.durMs; // 0..1
+  // Exponential pitch drop
+  float expTerm = expf(-3.0f * t);
+  float f = gPitchEnv.endFreq + (gPitchEnv.startFreq - gPitchEnv.endFreq) * expTerm;
+  fmCar.frequency(f);
+}
+
+// ------------------- ISR: Piezo + Flex -------------------
+void piezoISR()
+{
+  uint16_t c = analogReadFast(PIEZO_CENTER_PIN);
+  uint16_t r = analogReadFast(PIEZO_RIM_PIN);
+  Serial.print("C:");
+  Serial.print(c);
+  Serial.print(" R:");
+  Serial.println(r);
+
+  if (c > piezoCenterPeak)
+    piezoCenterPeak = c;
+  if (r > piezoRimPeak)
+    piezoRimPeak = r;
+
+  uint32_t now = millis();
+  if ((c > PIEZO_THRESHOLD || r > PIEZO_THRESHOLD) &&
+      (now - lastHitMs > PIEZO_DEBOUNCE_MS))
+  {
+    lastHitMs = now;
+    BaseType_t hpw = pdFALSE;
+    vTaskNotifyGiveFromISR(PlayTaskHandle, &hpw);
+    portYIELD_FROM_ISR(hpw);
+  }
+
+  // Flex smoothing (runs at 5kHz)
+  float flexRaw = analogReadFast(FLEX_PIN);
+  Serial.print(" Flex Raw:");
+  Serial.println(flexRaw);
+  smoothedFlex += FLEX_SMOOTH_ALPHA * (flexRaw - smoothedFlex);
+  //vTaskDelay(pdMS_TO_TICKS(200));
+}
+
+// ------------------- TRIGGER DRUM -------------------
+void triggerDrum(uint16_t peakC, uint16_t peakR, float flex, uint16_t fsr)
+{
+  uint16_t peak = max(peakC, peakR);
+  if (peak < PIEZO_THRESHOLD)
+    return;
+
+  float velN = velocityNorm(peak);
+
+  // Rim vs center detection
+  bool rimHit = (peakR > (peakC * 1.15f)); // rim ~ 15% stronger
+
+  // Block: center = lower notes (0..3), rim = higher notes (4..7)
+  int blockStart = rimHit ? 4 : 0;
+
+  // Flex -> 0..3 inside the block
+  int flexIdx = flexToIndex(flex);
+  int noteIndex = blockStart + flexIdx;
+  noteIndex = clampi(noteIndex, 0, 7);
+  float noteFreq = gNotes[noteIndex];
+
+  // FSR -> damping / decay only
+  // float damping = fsrToDamping(fsr, velN);
+
+  // ---------------- KS BODY ----------------
+  ks.noteOff(1.0f); // kill previous
+
+  // Set decay/tone
+  setKSDamping(fsr, velN);
+
+  float ksVel = 0.3f + velN * 0.7f; // 0.3..1.0
+  ks.noteOn(noteFreq, ksVel);
+
+  // ---------------- FM ATTACK ----------------
+  fmEnv.noteOff(); // clear old env quickly
+
+  float baseFmFreq = noteFreq * (rimHit ? 2.7f : 2.0f);
+  float fmIndex = fmIndexFromVelocity(velN, rimHit);
+
+  fmMod.begin(WAVEFORM_SINE);
+  fmCar.begin(WAVEFORM_SINE);
+  fmMod.frequency(baseFmFreq * 2.0f); // modulator
+  fmMod.amplitude(fmIndex);
+
+  // Pitch envelope amount depends on velocity
+  float dropAmt = 0.6f * velN; // up to +60% at start
+  float startF = baseFmFreq * (1.0f + dropAmt);
+  uint32_t envDur = 40 + (uint32_t)(velN * 60.0f); // 40..100ms
+  startPitchEnv(startF, baseFmFreq, envDur);
+
+  // FM envelope shaped by FSR (short vs long)
+  float fsrN = (float)fsr / (float)ADC_MAX;
+  float decayMs = 10.0f + (1.0f - fsrN) * 35.0f; // more FSR -> shorter
+  float releaseMs = 30.0f + (1.0f - fsrN) * 50.0f;
+
+  fmEnv.attack(1);
+  fmEnv.decay((int)decayMs);
+  fmEnv.sustain(0);
+  fmEnv.release((int)releaseMs);
+  fmEnv.noteOn();
+
+  // ---------------- NOISE TRANSIENT ----------------
+  noiseEnv.noteOff();
+  float nAmp = noiseAmpFromVelocity(velN, rimHit);
+  noise1.amplitude(nAmp);
+
+  int nDecay = 8 + (int)((1.0f - fsrN) * 20.0f); // longer for low FSR
+  int nRelease = 20 + (int)((1.0f - fsrN) * 30.0f);
+
+  noiseEnv.attack(0);
+  noiseEnv.decay(nDecay);
+  noiseEnv.sustain(0);
+  noiseEnv.release(nRelease);
+  noiseEnv.noteOn();
+}
+
+// ------------------- PlayTask -------------------
+void PlayTask(void *pvParameters)
+{
+  (void)pvParameters;
+  for (;;)
+  {
+    // Wait for hit notification
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+    // Snapshot sensor state
+    uint16_t peakC, peakR;
+    float flexLocal;
+    noInterrupts();
+    peakC = piezoCenterPeak;
+    peakR = piezoRimPeak;
+    piezoCenterPeak = 0;
+    piezoRimPeak = 0;
+    flexLocal = smoothedFlex;
+    interrupts();
+
+    uint16_t fsr = analogReadFast(FSR_PIN);
+    Serial.print("Hit! C:");
+    Serial.print(peakC);
+    Serial.print(" R:");
+    Serial.print(peakR);
+    Serial.print(" Flex:");
+    Serial.print(flexLocal, 2);
+    Serial.print(" FSR:");
+    Serial.print(fsr);
+    Serial.println();
+    triggerDrum(peakC, peakR, flexLocal, fsr);
+
+    // Small yield
+    vTaskDelay(pdMS_TO_TICKS(500));
+  }
+}
+
+// ------------------- SETUP -------------------
+void setup()
+{
+  Serial.begin(115200);
+  delay(200);
+
+  // Pins
+  pinMode(PIEZO_CENTER_PIN, INPUT);
+  pinMode(PIEZO_RIM_PIN, INPUT);
+  pinMode(FLEX_PIN, INPUT);
+  pinMode(FSR_PIN, INPUT);
+
+  // Audio
+  AudioMemory(32);
+  audioShield.enable();
+  audioShield.volume(0.8f);
+
+  mixer.gain(0, 0.8f); // FM
+  mixer.gain(1, 0.9f); // KS
+  mixer.gain(2, 0.5f); // Noise
+  mixer.gain(3, 0.0f); // unused
+
+  analogReadResolution(ANALOG_RESOLUTION_BITS);
+  analogReadAveraging(1);
+
+  smoothedFlex = analogReadFast(FLEX_PIN);
+
+  // Create PlayTask
+  BaseType_t res = xTaskCreate(
+      PlayTask,
+      "PlayTask",
+      4096,
+      NULL,
+      configMAX_PRIORITIES - 1,
+      &PlayTaskHandle);
+  if (res != pdPASS)
+  {
+    Serial.println("ERROR: PlayTask creation failed");
+    while (1)
+      delay(1000);
+  }
+
+  // Start piezo ISR
+  piezoTimer.begin(piezoISR, PIEZO_SAMPLE_INTERVAL_US);
+
+  Serial.println("FM + KS Drum Synth Online.");
+}
+
+// ------------------- LOOP -------------------
+void loop()
+{
+  // Update pitch envelope at low rate
+  updatePitchEnv();
+  vTaskDelay(pdMS_TO_TICKS(1000)); // ~500 Hz control rate
+}
