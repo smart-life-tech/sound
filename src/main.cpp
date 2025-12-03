@@ -223,6 +223,10 @@ void piezoISR()
 {
   uint16_t c = analogReadFast(PIEZO_CENTER_PIN);
   uint16_t r = analogReadFast(PIEZO_RIM_PIN);
+  Serial.print("C:");
+  Serial.print(c);
+  Serial.print(" R:");
+  Serial.println(r);
 
   if (c > piezoCenterPeak)
     piezoCenterPeak = c;
@@ -241,6 +245,8 @@ void piezoISR()
 
   // Flex smoothing (runs at 5kHz)
   float flexRaw = analogReadFast(FLEX_PIN);
+  Serial.print(" Flex Raw:");
+  Serial.println(flexRaw);
   smoothedFlex += FLEX_SMOOTH_ALPHA * (flexRaw - smoothedFlex);
 }
 
@@ -341,7 +347,15 @@ void PlayTask(void *pvParameters)
     interrupts();
 
     uint16_t fsr = analogReadFast(FSR_PIN);
-
+    Serial.print("Hit! C:");
+    Serial.print(peakC);
+    Serial.print(" R:");
+    Serial.print(peakR);
+    Serial.print(" Flex:");
+    Serial.print(flexLocal, 2);
+    Serial.print(" FSR:");
+    Serial.print(fsr);
+    Serial.println();
     triggerDrum(peakC, peakR, flexLocal, fsr);
 
     // Small yield
