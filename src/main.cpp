@@ -9,7 +9,7 @@ AudioControlSGTL5000 unused; // not used but required
 void setup() {
   AudioMemory(8);
   wave.begin(WAVEFORM_SINE);
-  wave.frequency(400);
+  wave.frequency(440);
   wave.amplitude(0.6);
 }
 
