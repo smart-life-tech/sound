@@ -248,6 +248,7 @@ void piezoISR()
   Serial.print(" Flex Raw:");
   Serial.println(flexRaw);
   smoothedFlex += FLEX_SMOOTH_ALPHA * (flexRaw - smoothedFlex);
+  vTaskDelay(pdMS_TO_TICKS(1000));
 }
 
 // ------------------- TRIGGER DRUM -------------------
@@ -359,7 +360,7 @@ void PlayTask(void *pvParameters)
     triggerDrum(peakC, peakR, flexLocal, fsr);
 
     // Small yield
-    vTaskDelay(pdMS_TO_TICKS(1));
+    vTaskDelay(pdMS_TO_TICKS(1000));
   }
 }
 
