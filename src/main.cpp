@@ -28,14 +28,14 @@
 #define ADC_MAX 4095
 
 #define PIEZO_THRESHOLD 600
-#define PIEZO_DEBOUNCE_MS 18
+#define PIEZO_DEBOUNCE_MS 10
 
 #define FLEX_MIN 250
 #define FLEX_MAX 3800
 #define FLEX_SMOOTH_ALPHA 0.24f
 #define FLEX_EXPONENT 1.85f
 
-#define PIEZO_SAMPLE_INTERVAL_US 500 // 5 kHz ISR
+#define PIEZO_SAMPLE_INTERVAL_US 1000 // 5 kHz ISR
 
 // ------------------- AUDIO OBJECTS -------------------
 // FM attack
