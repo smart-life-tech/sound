@@ -35,7 +35,7 @@
 #define FLEX_SMOOTH_ALPHA 0.24f
 #define FLEX_EXPONENT 1.85f
 
-#define PIEZO_SAMPLE_INTERVAL_US 1000 // 5 kHz ISR
+#define PIEZO_SAMPLE_INTERVAL_US 1000000 // 5 kHz ISR
 
 // ------------------- AUDIO OBJECTS -------------------
 // FM attack
