@@ -416,5 +416,5 @@ void loop()
 {
   // Update pitch envelope at low rate
   updatePitchEnv();
-  vTaskDelay(pdMS_TO_TICKS(2000)); // ~500 Hz control rate
+  vTaskDelay(pdMS_TO_TICKS(5000)); // ~500 Hz control rate
 }
