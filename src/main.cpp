@@ -357,7 +357,7 @@ void SensorPrintTask(void *pvParam)
     Serial.print(" FSR:");
     Serial.println(fsr);
 
-    vTaskDelay(pdMS_TO_TICKS(1000)); // print every 10ms (100Hz)
+    vTaskDelay(pdMS_TO_TICKS(100)); // print every 10ms (100Hz)
   }
 }
 
