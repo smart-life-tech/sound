@@ -27,7 +27,7 @@
 #define ANALOG_RESOLUTION_BITS 10
 #define ADC_MAX 1024
 
-#define PIEZO_THRESHOLD 200
+#define PIEZO_THRESHOLD 250
 #define PIEZO_DEBOUNCE_MS 5
 
 #define FLEX_MIN 250
@@ -492,7 +492,7 @@ void setup()
     audioShield.volume(1.0f);
 
     mixer.gain(0, 0.0f); // FM eliminated for no metallic
-    mixer.gain(1, 2.0f); // KS further maximized for even more bass
+    mixer.gain(1, 2.5f); // KS gain increased to compensate for low volume from deep bass filter
     mixer.gain(2, 0.0f); // Noise eliminated to remove any metallic transient
     mixer.gain(3, 0.0f); // unused
 
