@@ -24,7 +24,7 @@
 #define FSR_PIN A0
 
 // ------------------- CONFIG -------------------
-#define ANALOG_RESOLUTION_BITS 8
+#define ANALOG_RESOLUTION_BITS 10
 #define ADC_MAX 1024
 
 #define PIEZO_THRESHOLD 150
@@ -197,8 +197,8 @@ float noiseAmpFromVelocity(float velNorm, bool rimHit)
 // Controls tone & decay of KS via external lowpass filter
 void setKSDamping(uint16_t fsr, float velNorm)
 {
-  // map FSR (0..255) → cutoff for bass and damping
-  float fsrN = (float)fsr / 255.0f;
+  // map FSR (0..1024) → cutoff for bass and damping
+  float fsrN = (float)fsr / 1024.0f;
 
   float cutoff = 300.0f - fsrN * 200.0f; // higher FSR = lower cutoff for bass
   float brightness = velNorm * 100.0f;   // reduced brightness addition
@@ -348,7 +348,7 @@ void triggerDrum(uint16_t peakC, uint16_t peakR, float flex, uint16_t fsr)
     Serial.print("Updated value: ");
     Serial.println(currentFlex);
   }
-  float noteFreq = map(currentFlex, 0, 255, minFreq, (maxFreq));
+  float noteFreq = map(currentFlex, 0, 1024, minFreq, (maxFreq));
   Serial.print(" NoteFreq:");
   Serial.println(noteFreq);
   // FSR -> damping / decay only
@@ -560,6 +560,13 @@ void loop()
     // Serial.print(" Center tap:");
     // Serial.println(c);
     updatePitchEnv();
+
+    // Continuous FSR damping for post-hit decay control
+    uint16_t fsr = analogReadFast(FSR_PIN);
+    float fsrN = (float)fsr / 1024.0f;
+    float q = 4.0f - fsrN * 3.9f; // higher FSR = lower Q = more damping, down to 0.1
+    ksFilter.resonance(q);
+
     piezoISR();
   }
 }
