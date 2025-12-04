@@ -341,10 +341,12 @@ void triggerDrum(uint16_t peakC, uint16_t peakR, float flex, uint16_t fsr)
   float newValue = analogRead(FLEX_PIN); // or whatever sensor you're using
 
   // check if difference is >= 50
-  if (abs(newValue - lastFlex) >= 50)
+  if (abs(newValue - lastFlex) >= 100)
   {
     currentFlex = newValue; // update variable
     lastFlex = newValue;    // remember this value for next time
+     Serial.print("last value: ");
+    Serial.println(currentFlex);
     Serial.print("Updated value: ");
     Serial.println(currentFlex);
   }
