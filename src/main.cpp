@@ -86,7 +86,7 @@ volatile float smoothedFlex = 0.0f;
 bool test = true;
 // 8 notes C4 → C5
 float gNotes[8] = {
-    261.63f, // C4
+    71.0f, // C4 261.63f
     293.66f, // D4
     329.63f, // E4
     349.23f, // F4
@@ -148,10 +148,10 @@ int flexToIndex(float flex)
 int flexToIndex7(float flex)
 {
   // clamp to ADC range
-  float c = clampf(flex, 0.0f, 4095.0f);
+  float c = clampf(flex, 0.0f, 1024.0f);
 
   // normalize to 0..1
-  float n = c / 4095.0f;
+  float n = c / 1024.0f;
 
   // exponential feel curve
   float curved = powf(n, FLEX_EXPONENT);
