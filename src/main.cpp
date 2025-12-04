@@ -300,10 +300,10 @@ void piezoISR()
   // Serial.print(c);
   // Serial.print(" R:");
   // Serial.print(r);
-  // Serial.print(" Flex:");
-  // Serial.print(flexRaw, 1);
-  // Serial.print(" FSR:");
-  // Serial.println(fsr);
+  Serial.print(" Flex:");
+  Serial.print(flexRaw, 1);
+  Serial.print(" FSR:");
+  Serial.println(fsr);
   // vTaskDelay(pdMS_TO_TICKS(200));
 }
 
@@ -458,7 +458,7 @@ void setup()
   delay(200);
 
   // Pins
- // pinMode(PIEZO_CENTER_PIN, INPUT);
+  // pinMode(PIEZO_CENTER_PIN, INPUT);
   pinMode(PIEZO_RIM_PIN, INPUT);
   pinMode(FLEX_PIN, INPUT);
   pinMode(FSR_PIN, INPUT);
@@ -517,8 +517,8 @@ void setup()
       Serial.println("SensorPrintTask created.");
     }
     // Start piezo ISR
-    
-    //piezoTimer.begin(piezoISR, PIEZO_SAMPLE_INTERVAL_US);
+
+    // piezoTimer.begin(piezoISR, PIEZO_SAMPLE_INTERVAL_US);
   }
   Serial.println("FM + KS Drum Synth Online.");
 }
@@ -535,9 +535,9 @@ void loop()
   else
   {
     delay(5);
-    //uint16_t c = analogRead(PIEZO_CENTER_PIN);
-    //Serial.print(" Center tap:");
-    //Serial.println(c);
+    // uint16_t c = analogRead(PIEZO_CENTER_PIN);
+    // Serial.print(" Center tap:");
+    // Serial.println(c);
     updatePitchEnv();
     piezoISR();
   }
