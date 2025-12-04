@@ -295,14 +295,15 @@ void piezoISR()
   sensorR = r;
   float fsr = analogReadFast(FSR_PIN);
   sensorFSR = fsr;
-  Serial.print("C:");
-  Serial.print(c);
-  Serial.print(" R:");
-  Serial.print(r);
-  Serial.print(" Flex:");
-  Serial.print(flexRaw, 1);
-  Serial.print(" FSR:");
-  Serial.println(fsr);
+
+  // Serial.print("C:");
+  // Serial.print(c);
+  // Serial.print(" R:");
+  // Serial.print(r);
+  // Serial.print(" Flex:");
+  // Serial.print(flexRaw, 1);
+  // Serial.print(" FSR:");
+  // Serial.println(fsr);
   // vTaskDelay(pdMS_TO_TICKS(200));
 }
 
@@ -461,7 +462,7 @@ void setup()
   pinMode(FSR_PIN, INPUT);
 
   // Audio
-  if (!test)
+  if (test)
   {
     AudioMemory(32);
     audioShield.enable();
