@@ -1,0 +1,16 @@
+{
+  "minF": 45.0,
+  "maxF": 198.57389228659844,
+  "medianF": 86.00563826612898,
+  "startF": 189.11799265390326,
+  "endF": 82.45727325120501,
+  "pitch_drop_ms": 11.609977324263038,
+  "attack_ms": 1.5192743764172336,
+  "decay_ms": 0.18140589569160998,
+  "transient_rms": 0.30249353031947784,
+  "spectral_centroid_start": NaN,
+  "hf_ratio_start": NaN,
+  "suggested_ks_sustain_ms": 50.0,
+  "suggested_fm_index": 60.0,
+  "suggested_noise_level": 1.0
+}

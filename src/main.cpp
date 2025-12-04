@@ -81,8 +81,17 @@ volatile uint16_t piezoCenterPeak = 0;
 volatile uint32_t lastHitMs = 0;
 volatile float smoothedFlex = 0.0f;
 bool test = true;
-float minFreq = 80.0f;   // Minimum pitch (F0 Min from analysis ~83 Hz)
-float maxFreq = 1000.0f; // Maximum pitch (F0 Max ~1026 Hz from analysis)
+// --- Synth tuning constants (from analyze.py recommendations, tuned conservatively) ---
+static constexpr float S_MIN_FREQ = 45.0f;   // analysis min ~45 Hz
+static constexpr float S_MAX_FREQ = 200.0f;  // analysis max ~199 Hz (rounded)
+static constexpr int S_FM_DROP_MS = 30;      // use slightly longer than measured to avoid harsh metallicness
+static constexpr int S_KS_SUSTAIN_MS = 50;   // suggested KS sustain cap
+// scale down analyzer's aggressive FM/index and noise suggestions to avoid metallic harshness
+static constexpr float S_FM_INDEX_SCALE = 0.12f; // scale applied to fm index
+static constexpr float S_NOISE_LEVEL_SCALE = 0.35f; // scale applied to noise amplitude
+
+float minFreq = S_MIN_FREQ;
+float maxFreq = S_MAX_FREQ;
 // 8 notes C4 → C5
 float gNotes[8] = {
     71.0f,   // C4 261.63f
@@ -365,11 +374,8 @@ void triggerDrum(uint16_t peakC, float flex, uint16_t fsr)
   }
   else
   {
-    // scale sustain between 500..50 ms when FSR not strongly pressed
-    float s = 500.0f * (1.0f - fsrN);
-    if (s < 50.0f)
-      s = 50.0f;
-    sustainMs = (uint32_t)s;
+    // Use tuned KS sustain when FSR not strongly pressed
+    sustainMs = (uint32_t)S_KS_SUSTAIN_MS;
   }
   ksNoteOffMs = millis() + sustainMs;
 
@@ -384,13 +390,12 @@ void triggerDrum(uint16_t peakC, float flex, uint16_t fsr)
   fmMod.begin(WAVEFORM_SINE);
   fmCar.begin(WAVEFORM_SINE);
   fmMod.frequency(baseFmFreq * 2.0f); // modulator
-  fmMod.amplitude(fmIndex);
+  fmMod.amplitude(fmIndex * S_FM_INDEX_SCALE);
 
-  // Pitch envelope: start high and drop down (target audio shows 1000Hz -> 80Hz drop)
-  // FM carrier pitch drop simulates the attack-to-decay pitch slide
+  // Pitch envelope: start high and drop down (use measured drop but slightly lengthened)
   float dropAmt = 1.0f + velN * 2.0f; // 1..3x multiplier for pitch rise at start
   float startF = baseFmFreq * dropAmt; // starts high (pitch attack)
-  uint32_t envDur = 80 + (uint32_t)(velN * 150.0f); // 80..230ms for slower pitch fall
+  uint32_t envDur = (uint32_t)S_FM_DROP_MS; // use tuned FM drop time
   startPitchEnv(startF, baseFmFreq, envDur);
 
   // FM envelope: use short attack + FSR-scaled decay/release
@@ -405,8 +410,8 @@ void triggerDrum(uint16_t peakC, float flex, uint16_t fsr)
   // ---------------- NOISE TRANSIENT ----------------
   noiseEnv.noteOff();
   float nAmp = noiseAmpFromVelocity(velN);
-  // Keep noise amplitude intact; shorten release when FSR pressed
-  noise1.amplitude(nAmp);
+  // Keep noise amplitude intact but scale down globally to reduce metallic harshness
+  noise1.amplitude(nAmp * S_NOISE_LEVEL_SCALE);
 
   // Noise transient: keep as short burst, scaled by FSR for release only
   noiseEnv.attack(0);
