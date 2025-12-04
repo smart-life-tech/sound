@@ -35,7 +35,12 @@
 #define FLEX_SMOOTH_ALPHA 0.24f
 #define FLEX_EXPONENT 1.85f
 
-#define PIEZO_SAMPLE_INTERVAL_US 1000000 // 5 kHz ISR
+#define PIEZO_SAMPLE_INTERVAL_US 1000 // 5 kHz ISR
+
+volatile uint16_t sensorC = 0;
+volatile uint16_t sensorR = 0;
+volatile uint16_t sensorFSR = 0;
+volatile float sensorFlex = 0;
 
 // ------------------- AUDIO OBJECTS -------------------
 // FM attack
@@ -221,12 +226,9 @@ void updatePitchEnv()
 // ------------------- ISR: Piezo + Flex -------------------
 void piezoISR()
 {
+  digitalToggleFast(13);
   uint16_t c = analogReadFast(PIEZO_CENTER_PIN);
   uint16_t r = analogReadFast(PIEZO_RIM_PIN);
-  Serial.print("C:");
-  Serial.print(c);
-  Serial.print(" R:");
-  Serial.println(r);
 
   if (c > piezoCenterPeak)
     piezoCenterPeak = c;
@@ -245,9 +247,12 @@ void piezoISR()
 
   // Flex smoothing (runs at 5kHz)
   float flexRaw = analogReadFast(FLEX_PIN);
-  Serial.print(" Flex Raw:");
-  Serial.println(flexRaw);
+  // Serial.print(" Flex Raw:");
+  // Serial.println(flexRaw);
   smoothedFlex += FLEX_SMOOTH_ALPHA * (flexRaw - smoothedFlex);
+  sensorC = c;
+  sensorR = r;
+  sensorFSR = fsr;
   // vTaskDelay(pdMS_TO_TICKS(200));
 }
 
@@ -325,6 +330,34 @@ void triggerDrum(uint16_t peakC, uint16_t peakR, float flex, uint16_t fsr)
   noiseEnv.sustain(0);
   noiseEnv.release(nRelease);
   noiseEnv.noteOn();
+}
+
+void SensorPrintTask(void *pvParam)
+{
+  (void)pvParam;
+  while (1)
+  {
+    uint16_t c, r, fsr;
+    float flex;
+
+    noInterrupts();
+    c = sensorC;
+    r = sensorR;
+    fsr = sensorFSR;
+    flex = sensorFlex;
+    interrupts();
+
+    Serial.print("C:");
+    Serial.print(c);
+    Serial.print(" R:");
+    Serial.print(r);
+    Serial.print(" Flex:");
+    Serial.print(flex, 1);
+    Serial.print(" FSR:");
+    Serial.println(fsr);
+
+    vTaskDelay(pdMS_TO_TICKS(1000)); // print every 10ms (100Hz)
+  }
 }
 
 // ------------------- PlayTask -------------------
@@ -405,6 +438,13 @@ void setup()
     while (1)
       delay(1000);
   }
+  xTaskCreate(
+      SensorPrintTask,
+      "SensorPrint",
+      2048,
+      NULL,
+      1, // low priority
+      NULL);
 
   // Start piezo ISR
   piezoTimer.begin(piezoISR, PIEZO_SAMPLE_INTERVAL_US);
@@ -417,5 +457,5 @@ void loop()
 {
   // Update pitch envelope at low rate
   updatePitchEnv();
-  vTaskDelay(pdMS_TO_TICKS(1000)); // ~500 Hz control rate
+  vTaskDelay(pdMS_TO_TICKS(10)); // ~500 Hz control rate
 }
