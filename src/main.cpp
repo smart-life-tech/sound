@@ -334,7 +334,7 @@ void triggerDrum(uint16_t peakC, uint16_t peakR, float flex, uint16_t fsr)
   Serial.println(analogReadFast(FLEX_PIN));
   // noteIndex = clampi(noteIndex, 0, 7);
   // float noteFreq = gNotes[noteIndex];
-  maxFreq = minFreq + maxFreq;
+  //maxFreq = minFreq + maxFreq;
   float noteFreq = map(analogReadFast(FLEX_PIN), 0, 255, minFreq, (maxFreq));
   Serial.print(" NoteFreq:");
   Serial.println(noteFreq);
