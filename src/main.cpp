@@ -197,8 +197,8 @@ float noiseAmpFromVelocity(float velNorm, bool rimHit)
 // Controls tone & decay of KS via external lowpass filter
 void setKSDamping(uint16_t fsr, float velNorm)
 {
-  // map FSR (0..4095) → cutoff for bass and damping
-  float fsrN = (float)fsr / 4095.0f;
+  // map FSR (0..255) → cutoff for bass and damping
+  float fsrN = (float)fsr / 255.0f;
 
   float cutoff = 300.0f - fsrN * 200.0f; // higher FSR = lower cutoff for bass
   float brightness = velNorm * 100.0f;   // reduced brightness addition
