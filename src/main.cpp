@@ -336,7 +336,7 @@ void triggerDrum(uint16_t peakC, uint16_t peakR, float flex, uint16_t fsr)
   // noteIndex = clampi(noteIndex, 0, 7);
   // float noteFreq = gNotes[noteIndex];
   //maxFreq = minFreq + maxFreq;
-   int newValue = analogRead(FLEX_PIN);   // or whatever sensor you're using
+   float newValue = analogRead(FLEX_PIN);   // or whatever sensor you're using
 
   // check if difference is >= 10
   if (abs(newValue - lastFlex) >= 10) {
