@@ -252,6 +252,7 @@ void piezoISR()
   smoothedFlex += FLEX_SMOOTH_ALPHA * (flexRaw - smoothedFlex);
   sensorC = c;
   sensorR = r;
+  float fsr = analogReadFast(FSR_PIN);
   sensorFSR = fsr;
   // vTaskDelay(pdMS_TO_TICKS(200));
 }
