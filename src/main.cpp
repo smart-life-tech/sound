@@ -85,8 +85,8 @@ volatile uint16_t piezoRimPeak = 0;
 volatile uint32_t lastHitMs = 0;
 volatile float smoothedFlex = 0.0f;
 bool test = true;
-  float minFreq = 50.0f;           // Lower for more bass
-  float maxFreq = 300.0f;          // Upper limit for bass emphasis
+  float minFreq = 30.0f;           // Even lower for deeper bass
+  float maxFreq = 200.0f;          // Narrower range for bass emphasis
 // 8 notes C4 → C5
 float gNotes[8] = {
     71.0f,   // C4 261.63f
@@ -180,9 +180,9 @@ float fsrToDamping(uint16_t fsr, float velNorm)
 // FM index from velocity + rim/center
 float fmIndexFromVelocity(float velNorm, bool rimHit)
 {
-  float base = 10.0f + velNorm * 50.0f; // 10..60 for less brightness
+  float base = 5.0f + velNorm * 25.0f; // 5..30 for much less brightness/metal
   if (rimHit)
-    base *= 1.25f; // rim brighter
+    base *= 1.1f; // rim slightly brighter
   return base;
 }
 
@@ -200,7 +200,7 @@ void setKSDamping(uint16_t fsr, float velNorm)
   // map FSR (0..1024) → cutoff for bass and damping
   float fsrN = (float)fsr / 1024.0f;
 
-  float cutoff = 300.0f - fsrN * 200.0f; // higher FSR = lower cutoff for bass
+  float cutoff = 100.0f - fsrN * 50.0f; // much lower base cutoff for maximum bass
   float brightness = velNorm * 100.0f;   // reduced brightness addition
 
   float finalCutoff = cutoff + brightness;
@@ -491,9 +491,9 @@ void setup()
     audioShield.enable();
     audioShield.volume(0.9f);
 
-    mixer.gain(0, 0.4f); // FM
-    mixer.gain(1, 1.0f); // KS
-    mixer.gain(2, 0.5f); // Noise
+    mixer.gain(0, 0.0f); // FM eliminated for no metallic
+    mixer.gain(1, 2.0f); // KS further maximized for even more bass
+    mixer.gain(2, 0.0f); // Noise eliminated to remove any metallic transient
     mixer.gain(3, 0.0f); // unused
 
     analogReadResolution(ANALOG_RESOLUTION_BITS);
