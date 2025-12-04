@@ -296,14 +296,14 @@ void piezoISR()
   float fsr = analogReadFast(FSR_PIN);
   sensorFSR = fsr;
 
-  // Serial.print("C:");
-  // Serial.print(c);
-  // Serial.print(" R:");
-  // Serial.print(r);
-  // Serial.print(" Flex:");
-  // Serial.print(flexRaw, 1);
-  // Serial.print(" FSR:");
-  // Serial.println(fsr);
+  Serial.print("C:");
+  Serial.print(c);
+  Serial.print(" R:");
+  Serial.print(r);
+  Serial.print(" Flex:");
+  Serial.print(flexRaw, 1);
+  Serial.print(" FSR:");
+  Serial.println(fsr);
   // vTaskDelay(pdMS_TO_TICKS(200));
 }
 
@@ -515,7 +515,8 @@ void setup()
       Serial.println("SensorPrintTask created.");
     }
     // Start piezo ISR
-    piezoTimer.begin(piezoISR, PIEZO_SAMPLE_INTERVAL_US);
+    
+    //piezoTimer.begin(piezoISR, PIEZO_SAMPLE_INTERVAL_US);
   }
   Serial.println("FM + KS Drum Synth Online.");
 }
