@@ -3,7 +3,6 @@
    - FM attack (with pitch drop)
    - Karplus–Strong resonant body
    - Noise burst transient
-   - Center vs Rim: different note blocks & timbre
    - Flex: selects 1-of-4 notes inside block
    - FSR: attenuation/decay only
    - Piezo ISR + FreeRTOS PlayTask
@@ -19,7 +18,6 @@
 
 // ------------------- PINS -------------------
 #define PIEZO_CENTER_PIN A2
-#define PIEZO_RIM_PIN A3
 #define FLEX_PIN A1
 #define FSR_PIN A0
 
@@ -83,8 +81,8 @@ volatile uint16_t piezoCenterPeak = 0;
 volatile uint32_t lastHitMs = 0;
 volatile float smoothedFlex = 0.0f;
 bool test = true;
-  float minFreq = 30.0f;           // Even lower for deeper bass
-  float maxFreq = 200.0f;          // Narrower range for bass emphasis
+float minFreq = 30.0f;  // Even lower for deeper bass
+float maxFreq = 200.0f; // Narrower range for bass emphasis
 // 8 notes C4 → C5
 float gNotes[8] = {
     71.0f,   // C4 261.63f
@@ -130,7 +128,7 @@ static inline float mapf(float x, float inMin, float inMax, float outMin, float 
   return outMin + (outMax - outMin) * ((x - inMin) / (inMax - inMin));
 }
 
-void triggerDrum(uint16_t peakC, uint16_t peakR, float flex, uint16_t fsr);
+void triggerDrum(uint16_t peakC, float flex, uint16_t fsr);
 // 0..1 velocity from peak
 float velocityNorm(uint16_t peak)
 {
@@ -178,21 +176,18 @@ float fsrToDamping(uint16_t fsr, float velNorm)
   return clampf(d, 0.1f, 0.95f);
 }
 
-// FM index from velocity + rim/center
-float fmIndexFromVelocity(float velNorm, bool rimHit)
+float fmIndexFromVelocity(float velNorm)
 {
-  float base = 5.0f + velNorm * 25.0f; // 5..30 for much less brightness/metal
-  if (rimHit)
-    base *= 1.1f; // rim slightly brighter
+  // FM index (brightness) from velocity only  
+  float base = 5.0f + velNorm * 25.0f; // 5..30
   return base;
 }
 
-// Noise amplitude from velocity + rim/center
-float noiseAmpFromVelocity(float velNorm, bool rimHit)
+// Noise amplitude from velocity
+float noiseAmpFromVelocity(float velNorm)
 {
+  // Noise transient amplitude from velocity only
   float base = 0.2f + velNorm * 0.5f; // 0.2..0.7
-  if (rimHit)
-    base *= 1.2f;
   return clampf(base, 0.0f, 1.0f);
 }
 // Controls tone & decay of KS via external lowpass filter
@@ -202,7 +197,7 @@ void setKSDamping(uint16_t fsr, float velNorm)
   float fsrN = (float)fsr / 1024.0f;
 
   float cutoff = 100.0f - fsrN * 50.0f; // much lower base cutoff for maximum bass
-  float brightness = velNorm * 100.0f;   // reduced brightness addition
+  float brightness = velNorm * 100.0f;  // reduced brightness addition
 
   float finalCutoff = cutoff + brightness;
   if (finalCutoff < 100.0f)
@@ -283,7 +278,7 @@ void piezoISR()
     Serial.print(fsr);
     Serial.println();
     digitalToggleFast(13);
-    triggerDrum(peakC, 0, flexLocal, fsr);
+    triggerDrum(peakC, flexLocal, fsr);
   }
 
   // Flex smoothing (runs at 5kHz)
@@ -309,16 +304,13 @@ void piezoISR()
 }
 
 // ------------------- TRIGGER DRUM -------------------
-void triggerDrum(uint16_t peakC, uint16_t peakR, float flex, uint16_t fsr)
+void triggerDrum(uint16_t peakC, float flex, uint16_t fsr)
 {
-  uint16_t peak = peakC; // max(peakC, peakR); rim isnt in use
+  uint16_t peak = peakC;
   if (peak < PIEZO_THRESHOLD)
     return;
 
   float velN = velocityNorm(peak);
-
-  // Single piezo (center) used — treat as center hit
-  bool rimHit = false;
 
   // Block concept retained but not used directly here (flex selects note index)
 
@@ -339,7 +331,7 @@ void triggerDrum(uint16_t peakC, uint16_t peakR, float flex, uint16_t fsr)
   {
     currentFlex = newValue; // update variable
     lastFlex = newValue;    // remember this value for next time
-     Serial.print("last value: ");
+    Serial.print("last value: ");
     Serial.println(currentFlex);
     Serial.print("Updated value: ");
     Serial.println(currentFlex);
@@ -366,8 +358,8 @@ void triggerDrum(uint16_t peakC, uint16_t peakR, float flex, uint16_t fsr)
   // ---------------- FM ATTACK ----------------
   fmEnv.noteOff(); // clear old env quickly
 
-  float baseFmFreq = noteFreq * (rimHit ? 1.5f : 1.2f);
-  float fmIndex = fmIndexFromVelocity(velN, rimHit);
+  float baseFmFreq = noteFreq * 1.2f; // center-only tuning
+  float fmIndex = fmIndexFromVelocity(velN);
 
   fmMod.begin(WAVEFORM_SINE);
   fmCar.begin(WAVEFORM_SINE);
@@ -383,14 +375,14 @@ void triggerDrum(uint16_t peakC, uint16_t peakR, float flex, uint16_t fsr)
   // FM envelope: use short attack + short decay/release (not driven by FSR)
   // Keep the FM transient but avoid long metallic sustain
   fmEnv.attack(1);
-  fmEnv.decay(8);   // ~8 ms decay
+  fmEnv.decay(8); // ~8 ms decay
   fmEnv.sustain(0);
   fmEnv.release(80); // ~80 ms release
   fmEnv.noteOn();
 
   // ---------------- NOISE TRANSIENT ----------------
   noiseEnv.noteOff();
-  float nAmp = noiseAmpFromVelocity(velN, rimHit);
+  float nAmp = noiseAmpFromVelocity(velN);
   noise1.amplitude(nAmp);
 
   // Noise transient: keep as short burst (fast decay/release)
@@ -453,7 +445,7 @@ void PlayTask(void *pvParameters)
     Serial.print(fsr);
     Serial.println();
     digitalToggleFast(13);
-    triggerDrum(peakC, 0, flexLocal, fsr);
+    triggerDrum(peakC, flexLocal, fsr);
 
     // Small yield
     vTaskDelay(pdMS_TO_TICKS(500));
@@ -468,8 +460,6 @@ void setup()
 
   // Pins
   pinMode(PIEZO_CENTER_PIN, INPUT);
-  // PIEZO_RIM_PIN unused (single center piezo)
-  // pinMode(PIEZO_RIM_PIN, INPUT);
   pinMode(FLEX_PIN, INPUT);
   pinMode(FSR_PIN, INPUT);
 
