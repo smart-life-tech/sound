@@ -24,8 +24,8 @@
 #define FSR_PIN A0
 
 // ------------------- CONFIG -------------------
-#define ANALOG_RESOLUTION_BITS 12
-#define ADC_MAX 4095
+#define ANALOG_RESOLUTION_BITS 8
+#define ADC_MAX 1024
 
 #define PIEZO_THRESHOLD 500
 #define PIEZO_DEBOUNCE_MS 10
@@ -531,9 +531,9 @@ void loop()
   }
   else
   {
-    delay(1000);
+    delay(500);
     uint16_t c = analogReadFast(PIEZO_CENTER_PIN);
     Serial.print(" Center tap:");
-    Serial.print(c);
+    Serial.println(c);
   }
 }
