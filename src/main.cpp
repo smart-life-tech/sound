@@ -27,8 +27,8 @@
 #define ANALOG_RESOLUTION_BITS 8
 #define ADC_MAX 1024
 
-#define PIEZO_THRESHOLD 200
-#define PIEZO_DEBOUNCE_MS 10
+#define PIEZO_THRESHOLD 150
+#define PIEZO_DEBOUNCE_MS 5
 
 #define FLEX_MIN 250
 #define FLEX_MAX 3800
@@ -296,14 +296,14 @@ void piezoISR()
   float fsr = analogReadFast(FSR_PIN);
   sensorFSR = fsr;
 
-  Serial.print("C:");
-  Serial.print(c);
-  Serial.print(" R:");
-  Serial.print(r);
-  Serial.print(" Flex:");
-  Serial.print(flexRaw, 1);
-  Serial.print(" FSR:");
-  Serial.println(fsr);
+  // Serial.print("C:");
+  // Serial.print(c);
+  // Serial.print(" R:");
+  // Serial.print(r);
+  // Serial.print(" Flex:");
+  // Serial.print(flexRaw, 1);
+  // Serial.print(" FSR:");
+  // Serial.println(fsr);
   // vTaskDelay(pdMS_TO_TICKS(200));
 }
 
@@ -325,6 +325,8 @@ void triggerDrum(uint16_t peakC, uint16_t peakR, float flex, uint16_t fsr)
   // Flex -> 0..3 inside the block
   int flexIdx = flexToIndex7(flex);
   int noteIndex = flexIdx; // blockStart + flexIdx;
+  Serial.print(" NoteIndex:");
+  Serial.println(noteIndex);
   // noteIndex = clampi(noteIndex, 0, 7);
   float noteFreq = gNotes[noteIndex];
 
