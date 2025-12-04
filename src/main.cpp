@@ -226,7 +226,7 @@ void updatePitchEnv()
 // ------------------- ISR: Piezo + Flex -------------------
 void piezoISR()
 {
-  digitalToggleFast(13);
+  //digitalToggleFast(13);
   uint16_t c = analogReadFast(PIEZO_CENTER_PIN);
   uint16_t r = analogReadFast(PIEZO_RIM_PIN);
 
@@ -391,6 +391,7 @@ void PlayTask(void *pvParameters)
     Serial.print(" FSR:");
     Serial.print(fsr);
     Serial.println();
+    digitalToggleFast(13);
     triggerDrum(peakC, peakR, flexLocal, fsr);
 
     // Small yield
