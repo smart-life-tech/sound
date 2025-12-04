@@ -35,7 +35,7 @@
 #define FLEX_SMOOTH_ALPHA 0.24f
 #define FLEX_EXPONENT 1.85f
 
-#define PIEZO_SAMPLE_INTERVAL_US 1000 // 5 kHz ISR
+#define PIEZO_SAMPLE_INTERVAL_US 1000000 // 5 kHz ISR
 
 volatile uint16_t sensorC = 0;
 volatile uint16_t sensorR = 0;
@@ -226,7 +226,7 @@ void updatePitchEnv()
 // ------------------- ISR: Piezo + Flex -------------------
 void piezoISR()
 {
-  //digitalToggleFast(13);
+  // digitalToggleFast(13);
   uint16_t c = analogReadFast(PIEZO_CENTER_PIN);
   uint16_t r = analogReadFast(PIEZO_RIM_PIN);
 
@@ -241,8 +241,31 @@ void piezoISR()
   {
     lastHitMs = now;
     BaseType_t hpw = pdFALSE;
-    vTaskNotifyGiveFromISR(PlayTaskHandle, &hpw);
-    portYIELD_FROM_ISR(hpw);
+    // vTaskNotifyGiveFromISR(PlayTaskHandle, &hpw);
+    // portYIELD_FROM_ISR(hpw);
+    //  Snapshot sensor state
+    uint16_t peakC, peakR;
+    float flexLocal;
+    noInterrupts();
+    peakC = piezoCenterPeak;
+    peakR = piezoRimPeak;
+    piezoCenterPeak = 0;
+    piezoRimPeak = 0;
+    flexLocal = smoothedFlex;
+    interrupts();
+
+    uint16_t fsr = analogReadFast(FSR_PIN);
+    Serial.print("Hit! C:");
+    Serial.print(peakC);
+    Serial.print(" R:");
+    Serial.print(peakR);
+    Serial.print(" Flex:");
+    Serial.print(flexLocal, 2);
+    Serial.print(" FSR:");
+    Serial.print(fsr);
+    Serial.println();
+    digitalToggleFast(13);
+    triggerDrum(peakC, peakR, flexLocal, fsr);
   }
 
   // Flex smoothing (runs at 5kHz)
@@ -254,6 +277,14 @@ void piezoISR()
   sensorR = r;
   float fsr = analogReadFast(FSR_PIN);
   sensorFSR = fsr;
+  Serial.print("C:");
+  Serial.print(c);
+  Serial.print(" R:");
+  Serial.print(r);
+  Serial.print(" Flex:");
+  Serial.print(flex, 1);
+  Serial.print(" FSR:");
+  Serial.println(fsr);
   // vTaskDelay(pdMS_TO_TICKS(200));
 }
 
