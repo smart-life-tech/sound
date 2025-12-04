@@ -348,23 +348,29 @@ void triggerDrum(uint16_t peakC, float flex, uint16_t fsr)
   // Set decay/tone (filter + resonance) based on FSR and velocity
   setKSDamping(fsr, velN);
 
-  // Use FSR to control loudness and effective sustain: higher FSR -> more mute/shorter
+  // Use FSR to control effective sustain only: higher FSR -> shorter sustain
   float fsrN = (float)fsr / (float)ADC_MAX; // 0..1
 
-  // KS amplitude scaled by FSR (pressing reduces amplitude)
+  // KS amplitude should NOT be reduced by FSR; preserve full hit amplitude
   float ksVel = 0.3f + velN * 0.7f; // base 0.3..1.0
-  float ksAtten = 1.0f - fsrN * 0.95f; // near-full press almost mutes
-  if (ksAtten < 0.05f)
-    ksAtten = 0.05f;
-  ksVel *= ksAtten;
   ks.noteOn(noteFreq, ksVel);
 
-  // Enforce an FSR-scaled overall decay for drum-like settling (0.05..500 ms)
-  // Stronger FSR -> much shorter sustain
-  float sustainMs = 500.0f * (1.0f - fsrN); // 500..0
-  if (sustainMs < 50.0f)
-    sustainMs = 50.0f; // minimum sustain to avoid too abrupt cutoff
-  ksNoteOffMs = millis() + (uint32_t)sustainMs;
+  // If FSR pressed strongly, cut sustain quickly; otherwise scale sustain inversely
+  const float FSR_CUTOFF_IMMEDIATE = 0.25f; // threshold above which we aggressively cut
+  uint32_t sustainMs;
+  if (fsrN >= FSR_CUTOFF_IMMEDIATE)
+  {
+    sustainMs = 50; // immediate short cutoff after hit
+  }
+  else
+  {
+    // scale sustain between 500..50 ms when FSR not strongly pressed
+    float s = 500.0f * (1.0f - fsrN);
+    if (s < 50.0f)
+      s = 50.0f;
+    sustainMs = (uint32_t)s;
+  }
+  ksNoteOffMs = millis() + sustainMs;
 
   // ---------------- FM ATTACK ----------------
   fmEnv.noteOff(); // clear old env quickly
@@ -372,15 +378,12 @@ void triggerDrum(uint16_t peakC, float flex, uint16_t fsr)
   float baseFmFreq = noteFreq * 1.2f; // center-only tuning
   float fmIndex = fmIndexFromVelocity(velN);
 
-  // Reduce FM amplitude based on FSR so pressing mutes the metallic transient
-  float fmAtten = 1.0f - fsrN * 0.9f;
-  if (fmAtten < 0.05f)
-    fmAtten = 0.05f;
+  // Do not reduce FM amplitude by FSR; only shorten its release
 
   fmMod.begin(WAVEFORM_SINE);
   fmCar.begin(WAVEFORM_SINE);
   fmMod.frequency(baseFmFreq * 2.0f); // modulator
-  fmMod.amplitude(fmIndex * fmAtten);
+  fmMod.amplitude(fmIndex);
 
   // Pitch envelope amount depends on velocity
   float dropAmt = 0.6f * velN; // up to +60% at start
@@ -391,7 +394,7 @@ void triggerDrum(uint16_t peakC, float flex, uint16_t fsr)
   // FM envelope: use short attack + FSR-scaled decay/release
   fmEnv.attack(1);
   int fmDecay = 8;
-  int fmRelease = (int)max(20.0f, 80.0f * (1.0f - fsrN));
+  int fmRelease = (int)max(10.0f, 80.0f * (1.0f - fsrN));
   fmEnv.decay(fmDecay);   // small decay
   fmEnv.sustain(0);
   fmEnv.release(fmRelease);
@@ -400,16 +403,13 @@ void triggerDrum(uint16_t peakC, float flex, uint16_t fsr)
   // ---------------- NOISE TRANSIENT ----------------
   noiseEnv.noteOff();
   float nAmp = noiseAmpFromVelocity(velN);
-  // scale noise by FSR (pressing reduces transient)
-  nAmp *= (1.0f - fsrN * 0.95f);
-  if (nAmp < 0.01f)
-    nAmp = 0.01f;
+  // Keep noise amplitude intact; shorten release when FSR pressed
   noise1.amplitude(nAmp);
 
-  // Noise transient: keep as short burst, scaled by FSR
+  // Noise transient: keep as short burst, scaled by FSR for release only
   noiseEnv.attack(0);
   int noiseDecay = 12;
-  int noiseRelease = (int)max(10.0f, 60.0f * (1.0f - fsrN));
+  int noiseRelease = (int)max(8.0f, 60.0f * (1.0f - fsrN));
   noiseEnv.decay(noiseDecay);
   noiseEnv.sustain(0);
   noiseEnv.release(noiseRelease);
