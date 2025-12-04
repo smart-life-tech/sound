@@ -14,12 +14,7 @@
 #include <FreeRTOS.h>
 #include <task.h>
 #include <math.h>
-// These constants won't change. They're used to give names to the pins used:
-const int analogInPin = A2; // Analog input pin that the potentiometer is attached to
-const int analogOutPin = 9; // Analog output pin that the LED is attached to
 
-int sensorValue = 0; // value read from the pot
-int outputValue = 0; // value output to the PWM (analog out)
 #define analogReadFast(pin) analogRead(pin)
 
 // ------------------- PINS -------------------
@@ -453,28 +448,91 @@ void PlayTask(void *pvParameters)
   }
 }
 
+// ------------------- SETUP -------------------
 void setup()
 {
-  // initialize serial communications at 9600 bps:
   Serial.begin(115200);
+  delay(200);
+
+  // Pins
+ // pinMode(PIEZO_CENTER_PIN, INPUT);
+  pinMode(PIEZO_RIM_PIN, INPUT);
+  pinMode(FLEX_PIN, INPUT);
+  pinMode(FSR_PIN, INPUT);
+
+  // Audio
+  if (!test)
+  {
+    AudioMemory(32);
+    audioShield.enable();
+    audioShield.volume(0.9f);
+
+    mixer.gain(0, 0.8f); // FM
+    mixer.gain(1, 0.9f); // KS
+    mixer.gain(2, 0.5f); // Noise
+    mixer.gain(3, 0.0f); // unused
+
+    analogReadResolution(ANALOG_RESOLUTION_BITS);
+    analogReadAveraging(1);
+
+    smoothedFlex = analogReadFast(FLEX_PIN);
+
+    // Create PlayTask
+    BaseType_t res = xTaskCreate(
+        PlayTask,
+        "PlayTask",
+        4096,
+        NULL,
+        configMAX_PRIORITIES - 1,
+        &PlayTaskHandle);
+    if (res != pdPASS)
+    {
+      Serial.println("ERROR: PlayTask creation failed");
+      while (1)
+        delay(1000);
+    }
+    else
+    {
+      Serial.println("PlayTask created.");
+    }
+    // Create SensorPrintTask
+    res = xTaskCreate(
+        SensorPrintTask,
+        "SensorPrint",
+        2048,
+        NULL,
+        0, // low priority
+        NULL);
+    if (res != pdPASS)
+    {
+      Serial.println("ERROR: SensorPrintTask creation failed");
+      while (1)
+        delay(1000);
+    }
+    else
+    {
+      Serial.println("SensorPrintTask created.");
+    }
+    // Start piezo ISR
+    piezoTimer.begin(piezoISR, PIEZO_SAMPLE_INTERVAL_US);
+  }
+  Serial.println("FM + KS Drum Synth Online.");
 }
 
+// ------------------- LOOP -------------------
 void loop()
 {
-  // read the analog in value:
-  sensorValue = analogRead(analogInPin);
-  // map it to the range of the analog out:
-  outputValue = map(sensorValue, 0, 1023, 0, 255);
-  // change the analog out value:
-  analogWrite(analogOutPin, outputValue);
-
-  // print the results to the Serial Monitor:
-  Serial.print("sensor = ");
-  Serial.print(sensorValue);
-  Serial.print("\t output = ");
-  Serial.println(outputValue);
-
-  // wait 2 milliseconds before the next loop for the analog-to-digital
-  // converter to settle after the last reading:
-  delay(2);
+  // Update pitch envelope at low rate
+  if (!test)
+  {
+    updatePitchEnv();
+    vTaskDelay(pdMS_TO_TICKS(10)); // ~500 Hz control rate
+  }
+  else
+  {
+    delay(5);
+    uint16_t c = analogRead(PIEZO_CENTER_PIN);
+    Serial.print(" Center tap:");
+    Serial.println(c);
+  }
 }
