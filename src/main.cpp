@@ -333,7 +333,9 @@ void triggerDrum(uint16_t peakC, uint16_t peakR, float flex, uint16_t fsr)
   Serial.println(analogReadFast(FLEX_PIN));
   // noteIndex = clampi(noteIndex, 0, 7);
   // float noteFreq = gNotes[noteIndex];
-  float noteFreq = clampi(noteIndex, 71.0f, (71.0f + maxFreq));
+  float noteFreq = map(noteIndex, 0, 255, 71.0f, (71.0f + maxFreq));
+  Serial.print(" NoteFreq:");
+  Serial.println(noteFreq);
   // FSR -> damping / decay only
   // float damping = fsrToDamping(fsr, velN);
 
