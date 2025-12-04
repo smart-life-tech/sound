@@ -455,7 +455,7 @@ void setup()
   delay(200);
 
   // Pins
-  pinMode(PIEZO_CENTER_PIN, INPUT);
+ // pinMode(PIEZO_CENTER_PIN, INPUT);
   pinMode(PIEZO_RIM_PIN, INPUT);
   pinMode(FLEX_PIN, INPUT);
   pinMode(FSR_PIN, INPUT);
