@@ -28,7 +28,7 @@
 #define ADC_MAX 1024
 
 #define PIEZO_THRESHOLD 250
-#define PIEZO_DEBOUNCE_MS 5
+#define PIEZO_DEBOUNCE_MS 2
 
 #define FLEX_MIN 250
 #define FLEX_MAX 3800
@@ -382,8 +382,8 @@ void triggerDrum(uint16_t peakC, uint16_t peakR, float flex, uint16_t fsr)
 
   // FM envelope shaped by FSR (short vs long)
   float fsrN = (float)fsr / (float)ADC_MAX;
-  float decayMs = 10.0f + (1.0f - fsrN) * 15.0f; // more FSR -> shorter
-  float releaseMs = 30.0f + (1.0f - fsrN) * 50.0f;
+  float decayMs = 0.2f + (1.0f - fsrN) * 10.0f; // more FSR -> shorter, down to 0.2ms
+  float releaseMs = 0.2f + (1.0f - fsrN) * 50.0f; // adjustable settling time down to 0.2ms
 
   fmEnv.attack(1);
   fmEnv.decay((int)decayMs);
