@@ -111,6 +111,9 @@ struct PitchEnvState
 
 PitchEnvState gPitchEnv = {false, 0, 0, 0, 0};
 
+// ks note-off scheduling to enforce a fixed overall decay
+volatile uint32_t ksNoteOffMs = 0;
+
 // ------------------- HELPERS -------------------
 static inline float clampf(float v, float lo, float hi)
 {
@@ -365,6 +368,10 @@ void triggerDrum(uint16_t peakC, uint16_t peakR, float flex, uint16_t fsr)
   float ksVel = 0.3f + velN * 0.7f; // 0.3..1.0
   ks.noteOn(noteFreq, ksVel);
 
+  // Enforce a fixed overall decay for a more drum-like settling (~500 ms)
+  // Schedule KS noteOff at 500 ms from now regardless of FSR value
+  ksNoteOffMs = millis() + 500;
+
   // ---------------- FM ATTACK ----------------
   fmEnv.noteOff(); // clear old env quickly
 
@@ -382,15 +389,12 @@ void triggerDrum(uint16_t peakC, uint16_t peakR, float flex, uint16_t fsr)
   uint32_t envDur = 40 + (uint32_t)(velN * 60.0f); // 40..100ms
   startPitchEnv(startF, baseFmFreq, envDur);
 
-  // FM envelope shaped by FSR (short vs long)
-  float fsrN = (float)fsr / (float)ADC_MAX;
-  float decayMs = 0.2f + (1.0f - fsrN) * 10.0f; // more FSR -> shorter, down to 0.2ms
-  float releaseMs = 0.2f + (1.0f - fsrN) * 50.0f; // adjustable settling time down to 0.2ms
-
+  // FM envelope: use short attack + short decay/release (not driven by FSR)
+  // Keep the FM transient but avoid long metallic sustain
   fmEnv.attack(1);
-  fmEnv.decay((int)decayMs);
+  fmEnv.decay(8);   // ~8 ms decay
   fmEnv.sustain(0);
-  fmEnv.release((int)releaseMs);
+  fmEnv.release(80); // ~80 ms release
   fmEnv.noteOn();
 
   // ---------------- NOISE TRANSIENT ----------------
@@ -398,13 +402,11 @@ void triggerDrum(uint16_t peakC, uint16_t peakR, float flex, uint16_t fsr)
   float nAmp = noiseAmpFromVelocity(velN, rimHit);
   noise1.amplitude(nAmp);
 
-  int nDecay = 8 + (int)((1.0f - fsrN) * 20.0f); // longer for low FSR
-  int nRelease = 20 + (int)((1.0f - fsrN) * 30.0f);
-
+  // Noise transient: keep as short burst (fast decay/release)
   noiseEnv.attack(0);
-  noiseEnv.decay(nDecay);
+  noiseEnv.decay(12);
   noiseEnv.sustain(0);
-  noiseEnv.release(nRelease);
+  noiseEnv.release(60);
   noiseEnv.noteOn();
 }
 
@@ -569,6 +571,14 @@ void loop()
     float q = 4.0f - fsrN * 3.9f; // higher FSR = lower Q = more damping, down to 0.1
     ksFilter.resonance(q);
 
+    // Call ISR processing (keeps existing behaviour)
     piezoISR();
+
+    // Enforce scheduled KS note-off to limit settling to ~500 ms
+    if (ksNoteOffMs != 0 && millis() >= ksNoteOffMs)
+    {
+      ks.noteOff();
+      ksNoteOffMs = 0;
+    }
   }
 }
