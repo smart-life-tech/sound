@@ -84,9 +84,10 @@ volatile uint16_t piezoRimPeak = 0;
 volatile uint32_t lastHitMs = 0;
 volatile float smoothedFlex = 0.0f;
 bool test = true;
+float maxFreq = 523.25f;
 // 8 notes C4 → C5
 float gNotes[8] = {
-    71.0f, // C4 261.63f
+    71.0f,   // C4 261.63f
     293.66f, // D4
     329.63f, // E4
     349.23f, // F4
@@ -145,6 +146,7 @@ int flexToIndex(float flex)
   int idx = (int)(curved * 3.999f);                 // 0..3
   return clampi(idx, 0, 3);
 }
+
 int flexToIndex7(float flex)
 {
   // clamp to ADC range
@@ -301,7 +303,7 @@ void piezoISR()
   // Serial.print(" R:");
   // Serial.print(r);
   Serial.print(" Flex:");
-  Serial.print(flexRaw, 1);
+  Serial.print(flexRaw);
   Serial.print(" FSR:");
   Serial.println(fsr);
   // vTaskDelay(pdMS_TO_TICKS(200));
@@ -327,9 +329,11 @@ void triggerDrum(uint16_t peakC, uint16_t peakR, float flex, uint16_t fsr)
   int noteIndex = flexIdx; // blockStart + flexIdx;
   Serial.print(" NoteIndex:");
   Serial.println(noteIndex);
+  Serial.print(" flex read:");
+  Serial.println(analogReadFast(FLEX_PIN));
   // noteIndex = clampi(noteIndex, 0, 7);
-  float noteFreq = gNotes[noteIndex];
-
+  // float noteFreq = gNotes[noteIndex];
+  float noteFreq = clampi(noteIndex, 71.0f, (71.0f + maxFreq));
   // FSR -> damping / decay only
   // float damping = fsrToDamping(fsr, velN);
 
