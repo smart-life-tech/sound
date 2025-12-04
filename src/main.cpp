@@ -38,7 +38,6 @@
 #define PIEZO_SAMPLE_INTERVAL_US 1000000 // 5 kHz ISR
 
 volatile uint16_t sensorC = 0;
-volatile uint16_t sensorR = 0;
 volatile uint16_t sensorFSR = 0;
 volatile float sensorFlex = 0;
 float lastFlex = 0;
@@ -81,7 +80,6 @@ IntervalTimer piezoTimer;
 TaskHandle_t PlayTaskHandle = NULL;
 
 volatile uint16_t piezoCenterPeak = 0;
-volatile uint16_t piezoRimPeak = 0;
 volatile uint32_t lastHitMs = 0;
 volatile float smoothedFlex = 0.0f;
 bool test = true;
@@ -255,12 +253,9 @@ void piezoISR()
 {
   // digitalToggleFast(13);
   uint16_t c = analogReadFast(PIEZO_CENTER_PIN);
-  uint16_t r = analogReadFast(PIEZO_RIM_PIN);
 
   if (c > piezoCenterPeak)
     piezoCenterPeak = c;
-  if (r > piezoRimPeak)
-    piezoRimPeak = r;
 
   uint32_t now = millis();
   if ((c > PIEZO_THRESHOLD) &&
@@ -270,29 +265,25 @@ void piezoISR()
     // BaseType_t hpw = pdFALSE;
     //  vTaskNotifyGiveFromISR(PlayTaskHandle, &hpw);
     //  portYIELD_FROM_ISR(hpw);
-    //   Snapshot sensor state
-    uint16_t peakC, peakR;
+    //   Snapshot sensor state (center-only)
+    uint16_t peakC;
     float flexLocal;
     noInterrupts();
     peakC = piezoCenterPeak;
-    peakR = piezoRimPeak;
     piezoCenterPeak = 0;
-    piezoRimPeak = 0;
     flexLocal = smoothedFlex;
     interrupts();
 
     uint16_t fsr = analogReadFast(FSR_PIN);
     Serial.print("Hit! C:");
     Serial.print(peakC);
-    Serial.print(" R:");
-    Serial.print(peakR);
     Serial.print(" Flex:");
     Serial.print(flexLocal, 2);
     Serial.print(" FSR:");
     Serial.print(fsr);
     Serial.println();
     digitalToggleFast(13);
-    triggerDrum(peakC, peakR, flexLocal, fsr);
+    triggerDrum(peakC, 0, flexLocal, fsr);
   }
 
   // Flex smoothing (runs at 5kHz)
@@ -301,9 +292,10 @@ void piezoISR()
   // Serial.println(flexRaw);
   smoothedFlex += FLEX_SMOOTH_ALPHA * (flexRaw - smoothedFlex);
   sensorC = c;
-  sensorR = r;
   float fsr = analogReadFast(FSR_PIN);
   sensorFSR = fsr;
+  // keep a snapshot for the print task
+  sensorFlex = smoothedFlex;
 
   // Serial.print("C:");
   // Serial.print(c);
@@ -325,11 +317,10 @@ void triggerDrum(uint16_t peakC, uint16_t peakR, float flex, uint16_t fsr)
 
   float velN = velocityNorm(peak);
 
-  // Rim vs center detection
-  bool rimHit = (peakR > (peakC * 1.15f)); // rim ~ 15% stronger
+  // Single piezo (center) used — treat as center hit
+  bool rimHit = false;
 
-  // Block: center = lower notes (0..3), rim = higher notes (4..7)
-  int blockStart = rimHit ? 4 : 0;
+  // Block concept retained but not used directly here (flex selects note index)
 
   // Flex -> 0..3 inside the block
   int flexIdx = flexToIndex7(flex);
@@ -415,20 +406,17 @@ void SensorPrintTask(void *pvParam)
   (void)pvParam;
   while (1)
   {
-    uint16_t c, r, fsr;
+    uint16_t c, fsr;
     float flex;
 
     noInterrupts();
     c = sensorC;
-    r = sensorR;
     fsr = sensorFSR;
     flex = sensorFlex;
     interrupts();
 
     Serial.print("C:");
     Serial.print(c);
-    Serial.print(" R:");
-    Serial.print(r);
     Serial.print(" Flex:");
     Serial.print(flex, 1);
     Serial.print(" FSR:");
@@ -447,29 +435,25 @@ void PlayTask(void *pvParameters)
     // Wait for hit notification
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
-    // Snapshot sensor state
-    uint16_t peakC, peakR;
+    // Snapshot sensor state (center-only)
+    uint16_t peakC;
     float flexLocal;
     noInterrupts();
     peakC = piezoCenterPeak;
-    peakR = piezoRimPeak;
     piezoCenterPeak = 0;
-    piezoRimPeak = 0;
     flexLocal = smoothedFlex;
     interrupts();
 
     uint16_t fsr = analogReadFast(FSR_PIN);
     Serial.print("Hit! C:");
     Serial.print(peakC);
-    Serial.print(" R:");
-    Serial.print(peakR);
     Serial.print(" Flex:");
     Serial.print(flexLocal, 2);
     Serial.print(" FSR:");
     Serial.print(fsr);
     Serial.println();
     digitalToggleFast(13);
-    triggerDrum(peakC, peakR, flexLocal, fsr);
+    triggerDrum(peakC, 0, flexLocal, fsr);
 
     // Small yield
     vTaskDelay(pdMS_TO_TICKS(500));
@@ -483,8 +467,9 @@ void setup()
   delay(200);
 
   // Pins
-  // pinMode(PIEZO_CENTER_PIN, INPUT);
-  pinMode(PIEZO_RIM_PIN, INPUT);
+  pinMode(PIEZO_CENTER_PIN, INPUT);
+  // PIEZO_RIM_PIN unused (single center piezo)
+  // pinMode(PIEZO_RIM_PIN, INPUT);
   pinMode(FLEX_PIN, INPUT);
   pinMode(FSR_PIN, INPUT);
 
@@ -577,7 +562,7 @@ void loop()
     // Enforce scheduled KS note-off to limit settling to ~500 ms
     if (ksNoteOffMs != 0 && millis() >= ksNoteOffMs)
     {
-      ks.noteOff();
+      ks.noteOff(1.0f);
       ksNoteOffMs = 0;
     }
   }
