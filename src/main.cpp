@@ -438,14 +438,17 @@ void setup()
     Serial.println("ERROR: PlayTask creation failed");
     while (1)
       delay(1000);
-  }
-  xTaskCreate(
-      SensorPrintTask,
-      "SensorPrint",
-      2048,
-      NULL,
-      1, // low priority
-      NULL);
+  }else{
+    Serial.println("PlayTask created.");
+  } 
+  // Create SensorPrintTask
+  // xTaskCreate(
+  //     SensorPrintTask,
+  //     "SensorPrint",
+  //     2048,
+  //     NULL,
+  //     1, // low priority
+  //     NULL);
 
   // Start piezo ISR
   piezoTimer.begin(piezoISR, PIEZO_SAMPLE_INTERVAL_US);
