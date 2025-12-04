@@ -81,14 +81,14 @@ volatile uint16_t piezoCenterPeak = 0;
 volatile uint32_t lastHitMs = 0;
 volatile float smoothedFlex = 0.0f;
 bool test = true;
-// --- Synth tuning constants (from analyze.py recommendations, tuned conservatively) ---
-static constexpr float S_MIN_FREQ = 45.0f;   // analysis min ~45 Hz
-static constexpr float S_MAX_FREQ = 200.0f;  // analysis max ~199 Hz (rounded)
-static constexpr int S_FM_DROP_MS = 30;      // use slightly longer than measured to avoid harsh metallicness
-static constexpr int S_KS_SUSTAIN_MS = 50;   // suggested KS sustain cap
+// --- Synth tuning constants (from analyze.py recommendations, tuned for better match) ---
+static constexpr float S_MIN_FREQ = 80.0f;    // raise min to avoid overly deep body
+static constexpr float S_MAX_FREQ = 1000.0f;  // allow full high range if flex requests it
+static constexpr int S_FM_DROP_MS = 80;       // longer pitch drop to reduce metallic harshness
+static constexpr int S_KS_SUSTAIN_MS = 400;   // longer sustain to match original tail
 // scale down analyzer's aggressive FM/index and noise suggestions to avoid metallic harshness
-static constexpr float S_FM_INDEX_SCALE = 0.12f; // scale applied to fm index
-static constexpr float S_NOISE_LEVEL_SCALE = 0.35f; // scale applied to noise amplitude
+static constexpr float S_FM_INDEX_SCALE = 0.08f; // scale applied to fm index
+static constexpr float S_NOISE_LEVEL_SCALE = 0.25f; // scale applied to noise amplitude
 
 float minFreq = S_MIN_FREQ;
 float maxFreq = S_MAX_FREQ;
@@ -323,29 +323,20 @@ void triggerDrum(uint16_t peakC, float flex, uint16_t fsr)
 
   // Block concept retained but not used directly here (flex selects note index)
 
-  // Flex -> 0..3 inside the block
+  // Flex-based pitch mapping (use the passed smoothed flex value)
   int flexIdx = flexToIndex7(flex);
-  int noteIndex = flexIdx; // blockStart + flexIdx;
   Serial.print(" NoteIndex:");
-  Serial.println(noteIndex);
+  Serial.println(flexIdx);
   Serial.print(" flex read:");
-  Serial.println(analogReadFast(FLEX_PIN));
-  // noteIndex = clampi(noteIndex, 0, 7);
-  // float noteFreq = gNotes[noteIndex];
-  // maxFreq = minFreq + maxFreq;
-  float newValue = analogRead(FLEX_PIN); // or whatever sensor you're using
+  Serial.println(flex);
 
-  // check if difference is >= 50
-  if (abs(newValue - lastFlex) >= 150)
-  {
-    currentFlex = newValue; // update variable
-    lastFlex = newValue;    // remember this value for next time
-    Serial.print("last value: ");
-    Serial.println(currentFlex);
-    Serial.print("Updated value: ");
-    Serial.println(currentFlex);
-  }
-  float noteFreq = map(currentFlex, 0, 1024, minFreq, (maxFreq));
+  // Map flex (smoothed value passed in) to frequency using a gentle nonlinear curve
+  float clamped = constrain(flex, FLEX_MIN, FLEX_MAX);
+  float norm = (clamped - FLEX_MIN) / (FLEX_MAX - FLEX_MIN); // 0..1
+  // Use an exponent <1 to expand the upper portion (more responsive to flex)
+  float curveExp = 0.65f; // tweakable: <1 -> more high pitches, >1 -> more low pitches
+  float curved = powf(norm, curveExp);
+  float noteFreq = minFreq + curved * (maxFreq - minFreq);
   Serial.print(" NoteFreq:");
   Serial.println(noteFreq);
   // FSR -> damping / decay only
