@@ -471,7 +471,7 @@ void setup()
   mixer.gain(3, 0.0f); // unused
 
   analogReadResolution(ANALOG_RESOLUTION_BITS);
-  analogReadAveraging(10);
+  analogReadAveraging(1);
 
   smoothedFlex = analogReadFast(FLEX_PIN);
 
