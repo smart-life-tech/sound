@@ -126,6 +126,7 @@ static inline float mapf(float x, float inMin, float inMax, float outMin, float 
   return outMin + (outMax - outMin) * ((x - inMin) / (inMax - inMin));
 }
 
+void triggerDrum(uint16_t peakC, uint16_t peakR, float flex, uint16_t fsr); 
 // 0..1 velocity from peak
 float velocityNorm(uint16_t peak)
 {
