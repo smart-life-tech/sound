@@ -241,7 +241,7 @@ void piezoISR()
       (now - lastHitMs > PIEZO_DEBOUNCE_MS))
   {
     lastHitMs = now;
-    BaseType_t hpw = pdFALSE;
+    //BaseType_t hpw = pdFALSE;
     // vTaskNotifyGiveFromISR(PlayTaskHandle, &hpw);
     // portYIELD_FROM_ISR(hpw);
     //  Snapshot sensor state
@@ -283,7 +283,7 @@ void piezoISR()
   Serial.print(" R:");
   Serial.print(r);
   Serial.print(" Flex:");
-  Serial.print(flex, 1);
+  Serial.print(flexRaw, 1);
   Serial.print(" FSR:");
   Serial.println(fsr);
   // vTaskDelay(pdMS_TO_TICKS(200));
