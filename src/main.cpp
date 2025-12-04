@@ -85,8 +85,8 @@ volatile uint16_t piezoRimPeak = 0;
 volatile uint32_t lastHitMs = 0;
 volatile float smoothedFlex = 0.0f;
 bool test = true;
-float minFreq = 71.0f;           // C4
-float maxFreq = 523.25f - 71.0f; // C5 - C4
+  float minFreq = 50.0f;           // Lower for more bass
+  float maxFreq = 300.0f;          // Upper limit for bass emphasis
 // 8 notes C4 → C5
 float gNotes[8] = {
     71.0f,   // C4 261.63f
@@ -197,20 +197,22 @@ float noiseAmpFromVelocity(float velNorm, bool rimHit)
 // Controls tone & decay of KS via external lowpass filter
 void setKSDamping(uint16_t fsr, float velNorm)
 {
-  // map FSR (0..4095) → cutoff 300..1000 Hz for bass emphasis
+  // map FSR (0..4095) → cutoff for bass and damping
   float fsrN = (float)fsr / 4095.0f;
 
-  float cutoff = 300.0f + fsrN * 700.0f; // higher FSR = higher cutoff for brightness
-  float brightness = velNorm * 200.0f;   // velocity adds brightness
+  float cutoff = 300.0f - fsrN * 200.0f; // higher FSR = lower cutoff for bass
+  float brightness = velNorm * 100.0f;   // reduced brightness addition
 
   float finalCutoff = cutoff + brightness;
-  if (finalCutoff > 2000.0f)
-    finalCutoff = 2000.0f;
+  if (finalCutoff < 100.0f)
+    finalCutoff = 100.0f;
+  if (finalCutoff > 1000.0f)
+    finalCutoff = 1000.0f;
 
   ksFilter.frequency(finalCutoff);
 
-  // resonance Q controls decay speed - invert: higher FSR = less damping (more resonance)
-  float q = 4.0f - fsrN * 3.0f; // more FSR = more resonance (less Q)
+  // resonance Q controls decay speed: higher FSR = more damping (less resonance, shorter decay)
+  float q = 4.0f - fsrN * 3.5f; // higher FSR = lower Q for shorter decay
   ksFilter.resonance(q);
 }
 
