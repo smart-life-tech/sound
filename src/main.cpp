@@ -180,7 +180,7 @@ float fsrToDamping(uint16_t fsr, float velNorm)
 // FM index from velocity + rim/center
 float fmIndexFromVelocity(float velNorm, bool rimHit)
 {
-  float base = 60.0f + velNorm * 320.0f; // 60..380
+  float base = 10.0f + velNorm * 50.0f; // 10..60 for less brightness
   if (rimHit)
     base *= 1.25f; // rim brighter
   return base;
@@ -197,20 +197,20 @@ float noiseAmpFromVelocity(float velNorm, bool rimHit)
 // Controls tone & decay of KS via external lowpass filter
 void setKSDamping(uint16_t fsr, float velNorm)
 {
-  // map FSR (0..4095) → cutoff 500..6000 Hz
+  // map FSR (0..4095) → cutoff 300..1000 Hz for bass emphasis
   float fsrN = (float)fsr / 4095.0f;
 
-  float cutoff = 600.0f + (1.0f - fsrN) * 5400.0f; // low fsr = long ring
-  float brightness = velNorm * 800.0f;             // velocity adds brightness
+  float cutoff = 300.0f + fsrN * 700.0f; // higher FSR = higher cutoff for brightness
+  float brightness = velNorm * 200.0f;   // velocity adds brightness
 
   float finalCutoff = cutoff + brightness;
-  if (finalCutoff > 8000.0f)
-    finalCutoff = 8000.0f;
+  if (finalCutoff > 2000.0f)
+    finalCutoff = 2000.0f;
 
   ksFilter.frequency(finalCutoff);
 
-  // resonance Q controls decay speed
-  float q = 1.0f + fsrN * 3.0f; // more FSR = tighter/shorter
+  // resonance Q controls decay speed - invert: higher FSR = less damping (more resonance)
+  float q = 4.0f - fsrN * 3.0f; // more FSR = more resonance (less Q)
   ksFilter.resonance(q);
 }
 
@@ -364,7 +364,7 @@ void triggerDrum(uint16_t peakC, uint16_t peakR, float flex, uint16_t fsr)
   // ---------------- FM ATTACK ----------------
   fmEnv.noteOff(); // clear old env quickly
 
-  float baseFmFreq = noteFreq * (rimHit ? 2.7f : 2.0f);
+  float baseFmFreq = noteFreq * (rimHit ? 1.5f : 1.2f);
   float fmIndex = fmIndexFromVelocity(velN, rimHit);
 
   fmMod.begin(WAVEFORM_SINE);
@@ -489,8 +489,8 @@ void setup()
     audioShield.enable();
     audioShield.volume(0.9f);
 
-    mixer.gain(0, 0.8f); // FM
-    mixer.gain(1, 0.9f); // KS
+    mixer.gain(0, 0.4f); // FM
+    mixer.gain(1, 1.0f); // KS
     mixer.gain(2, 0.5f); // Noise
     mixer.gain(3, 0.0f); // unused
 
