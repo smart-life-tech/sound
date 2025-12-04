@@ -27,7 +27,7 @@
 #define ANALOG_RESOLUTION_BITS 12
 #define ADC_MAX 4095
 
-#define PIEZO_THRESHOLD 6000
+#define PIEZO_THRESHOLD 500
 #define PIEZO_DEBOUNCE_MS 10
 
 #define FLEX_MIN 250
@@ -254,7 +254,7 @@ void piezoISR()
     piezoRimPeak = r;
 
   uint32_t now = millis();
-  if ((c > PIEZO_THRESHOLD || r > PIEZO_THRESHOLD) &&
+  if ((c > PIEZO_THRESHOLD ) &&
       (now - lastHitMs > PIEZO_DEBOUNCE_MS))
   {
     lastHitMs = now;
