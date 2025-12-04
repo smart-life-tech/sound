@@ -531,8 +531,10 @@ void loop()
   else
   {
     delay(5);
-    uint16_t c = analogRead(PIEZO_CENTER_PIN);
-    Serial.print(" Center tap:");
-    Serial.println(c);
+    //uint16_t c = analogRead(PIEZO_CENTER_PIN);
+    //Serial.print(" Center tap:");
+    //Serial.println(c);
+    updatePitchEnv();
+    piezoISR();
   }
 }
