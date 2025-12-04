@@ -85,7 +85,7 @@ volatile uint16_t piezoRimPeak = 0;
 volatile uint32_t lastHitMs = 0;
 volatile float smoothedFlex = 0.0f;
 bool test = true;
-float minFreq = 71.0f; // C4
+float minFreq = 71.0f;           // C4
 float maxFreq = 523.25f - 71.0f; // C5 - C4
 // 8 notes C4 → C5
 float gNotes[8] = {
@@ -335,17 +335,18 @@ void triggerDrum(uint16_t peakC, uint16_t peakR, float flex, uint16_t fsr)
   Serial.println(analogReadFast(FLEX_PIN));
   // noteIndex = clampi(noteIndex, 0, 7);
   // float noteFreq = gNotes[noteIndex];
-  //maxFreq = minFreq + maxFreq;
-   float newValue = analogRead(FLEX_PIN);   // or whatever sensor you're using
+  // maxFreq = minFreq + maxFreq;
+  float newValue = analogRead(FLEX_PIN); // or whatever sensor you're using
 
   // check if difference is >= 10
-  if (abs(newValue - lastFlex) >= 10) {
-    currentFlex = newValue;   // update variable
+  if (abs(newValue - lastFlex) >= 10)
+  {
+    currentFlex = newValue; // update variable
     lastFlex = newValue;    // remember this value for next time
     Serial.print("Updated value: ");
     Serial.println(currentFlex);
   }
-  float noteFreq = map(currentFlex 0, 255, minFreq, (maxFreq));
+  float noteFreq = map(currentFlex, 0, 255, minFreq, (maxFreq));
   Serial.print(" NoteFreq:");
   Serial.println(noteFreq);
   // FSR -> damping / decay only
