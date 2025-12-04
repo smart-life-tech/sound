@@ -450,7 +450,7 @@ void setup()
       "SensorPrint",
       2048,
       NULL,
-      1, // low priority
+      0, // low priority
       NULL);
   if (res != pdPASS)
   {
