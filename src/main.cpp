@@ -81,8 +81,8 @@ volatile uint16_t piezoCenterPeak = 0;
 volatile uint32_t lastHitMs = 0;
 volatile float smoothedFlex = 0.0f;
 bool test = true;
-float minFreq = 30.0f;  // Even lower for deeper bass
-float maxFreq = 200.0f; // Narrower range for bass emphasis
+float minFreq = 80.0f;   // Minimum pitch (F0 Min from analysis ~83 Hz)
+float maxFreq = 1000.0f; // Maximum pitch (F0 Max ~1026 Hz from analysis)
 // 8 notes C4 → C5
 float gNotes[8] = {
     71.0f,   // C4 261.63f
@@ -352,7 +352,8 @@ void triggerDrum(uint16_t peakC, float flex, uint16_t fsr)
   float fsrN = (float)fsr / (float)ADC_MAX; // 0..1
 
   // KS amplitude should NOT be reduced by FSR; preserve full hit amplitude
-  float ksVel = 0.3f + velN * 0.7f; // base 0.3..1.0
+  // Target analysis shows strong presence throughout the decay, so higher velocity helps
+  float ksVel = 0.5f + velN * 0.5f; // 0.5..1.0 (increased from 0.3..1.0)
   ks.noteOn(noteFreq, ksVel);
 
   // If FSR pressed strongly, cut sustain quickly; otherwise scale sustain inversely
@@ -385,10 +386,11 @@ void triggerDrum(uint16_t peakC, float flex, uint16_t fsr)
   fmMod.frequency(baseFmFreq * 2.0f); // modulator
   fmMod.amplitude(fmIndex);
 
-  // Pitch envelope amount depends on velocity
-  float dropAmt = 0.6f * velN; // up to +60% at start
-  float startF = baseFmFreq * (1.0f + dropAmt);
-  uint32_t envDur = 40 + (uint32_t)(velN * 60.0f); // 40..100ms
+  // Pitch envelope: start high and drop down (target audio shows 1000Hz -> 80Hz drop)
+  // FM carrier pitch drop simulates the attack-to-decay pitch slide
+  float dropAmt = 1.0f + velN * 2.0f; // 1..3x multiplier for pitch rise at start
+  float startF = baseFmFreq * dropAmt; // starts high (pitch attack)
+  uint32_t envDur = 80 + (uint32_t)(velN * 150.0f); // 80..230ms for slower pitch fall
   startPitchEnv(startF, baseFmFreq, envDur);
 
   // FM envelope: use short attack + FSR-scaled decay/release
