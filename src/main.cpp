@@ -41,7 +41,8 @@ volatile uint16_t sensorC = 0;
 volatile uint16_t sensorR = 0;
 volatile uint16_t sensorFSR = 0;
 volatile float sensorFlex = 0;
-
+float lastFlex = 0;
+float currentFlex = 0;
 // ------------------- AUDIO OBJECTS -------------------
 // FM attack
 AudioSynthWaveform fmMod;
@@ -335,7 +336,16 @@ void triggerDrum(uint16_t peakC, uint16_t peakR, float flex, uint16_t fsr)
   // noteIndex = clampi(noteIndex, 0, 7);
   // float noteFreq = gNotes[noteIndex];
   //maxFreq = minFreq + maxFreq;
-  float noteFreq = map(analogReadFast(FLEX_PIN), 0, 255, minFreq, (maxFreq));
+   int newValue = analogRead(FLEX_PIN);   // or whatever sensor you're using
+
+  // check if difference is >= 10
+  if (abs(newValue - lastFlex) >= 10) {
+    currentFlex = newValue;   // update variable
+    lastFlex = newValue;    // remember this value for next time
+    Serial.print("Updated value: ");
+    Serial.println(currentFlex);
+  }
+  float noteFreq = map(currentFlex 0, 255, minFreq, (maxFreq));
   Serial.print(" NoteFreq:");
   Serial.println(noteFreq);
   // FSR -> damping / decay only
