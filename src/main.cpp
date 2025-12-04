@@ -83,7 +83,7 @@ volatile uint16_t piezoCenterPeak = 0;
 volatile uint16_t piezoRimPeak = 0;
 volatile uint32_t lastHitMs = 0;
 volatile float smoothedFlex = 0.0f;
-
+bool test = true;
 // 8 notes C4 → C5
 float gNotes[8] = {
     261.63f, // C4
@@ -254,7 +254,7 @@ void piezoISR()
     piezoRimPeak = r;
 
   uint32_t now = millis();
-  if ((c > PIEZO_THRESHOLD ) &&
+  if ((c > PIEZO_THRESHOLD) &&
       (now - lastHitMs > PIEZO_DEBOUNCE_MS))
   {
     lastHitMs = now;
@@ -475,45 +475,48 @@ void setup()
 
   smoothedFlex = analogReadFast(FLEX_PIN);
 
-  // Create PlayTask
-  BaseType_t res = xTaskCreate(
-      PlayTask,
-      "PlayTask",
-      4096,
-      NULL,
-      configMAX_PRIORITIES - 1,
-      &PlayTaskHandle);
-  if (res != pdPASS)
+  
+  if (!test)
   {
-    Serial.println("ERROR: PlayTask creation failed");
-    while (1)
-      delay(1000);
+    // Create PlayTask
+    BaseType_t res = xTaskCreate(
+        PlayTask,
+        "PlayTask",
+        4096,
+        NULL,
+        configMAX_PRIORITIES - 1,
+        &PlayTaskHandle);
+    if (res != pdPASS)
+    {
+      Serial.println("ERROR: PlayTask creation failed");
+      while (1)
+        delay(1000);
+    }
+    else
+    {
+      Serial.println("PlayTask created.");
+    }
+    // Create SensorPrintTask
+    res = xTaskCreate(
+        SensorPrintTask,
+        "SensorPrint",
+        2048,
+        NULL,
+        0, // low priority
+        NULL);
+    if (res != pdPASS)
+    {
+      Serial.println("ERROR: SensorPrintTask creation failed");
+      while (1)
+        delay(1000);
+    }
+    else
+    {
+      Serial.println("SensorPrintTask created.");
+    }
+    // Start piezo ISR
+    piezoTimer.begin(piezoISR, PIEZO_SAMPLE_INTERVAL_US);
   }
-  else
-  {
-    Serial.println("PlayTask created.");
-  }
-  // Create SensorPrintTask
-  res = xTaskCreate(
-      SensorPrintTask,
-      "SensorPrint",
-      2048,
-      NULL,
-      0, // low priority
-      NULL);
-  if (res != pdPASS)
-  {
-    Serial.println("ERROR: SensorPrintTask creation failed");
-    while (1)
-      delay(1000);
-  }
-  else
-  {
-    Serial.println("SensorPrintTask created.");
-  }
-  // Start piezo ISR
-  piezoTimer.begin(piezoISR, PIEZO_SAMPLE_INTERVAL_US);
-
   Serial.println("FM + KS Drum Synth Online.");
 }
 
@@ -521,6 +524,16 @@ void setup()
 void loop()
 {
   // Update pitch envelope at low rate
-  updatePitchEnv();
-  vTaskDelay(pdMS_TO_TICKS(10)); // ~500 Hz control rate
+  if (!test)
+  {
+    updatePitchEnv();
+    vTaskDelay(pdMS_TO_TICKS(10)); // ~500 Hz control rate
+  }
+  else
+  {
+    delay(1000);
+    uint16_t c = analogReadFast(PIEZO_CENTER_PIN);
+    Serial.print(" Center tap:");
+    Serial.print(c);
+  }
 }
