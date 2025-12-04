@@ -303,10 +303,10 @@ void piezoISR()
   // Serial.print(c);
   // Serial.print(" R:");
   // Serial.print(r);
-  Serial.print(" Flex:");
-  Serial.print(flexRaw);
-  Serial.print(" FSR:");
-  Serial.println(fsr);
+  // Serial.print(" Flex:");
+  // Serial.print(flexRaw);
+  // Serial.print(" FSR:");
+  // Serial.println(fsr);
   // vTaskDelay(pdMS_TO_TICKS(200));
 }
 
@@ -335,7 +335,7 @@ void triggerDrum(uint16_t peakC, uint16_t peakR, float flex, uint16_t fsr)
   // noteIndex = clampi(noteIndex, 0, 7);
   // float noteFreq = gNotes[noteIndex];
   maxFreq = minFreq + maxFreq;
-  float noteFreq = map(noteIndex, 0, 255, minFreq, (maxFreq));
+  float noteFreq = map(analogReadFast(FLEX_PIN), 0, 255, minFreq, (maxFreq));
   Serial.print(" NoteFreq:");
   Serial.println(noteFreq);
   // FSR -> damping / decay only
