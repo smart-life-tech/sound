@@ -338,8 +338,8 @@ void triggerDrum(uint16_t peakC, uint16_t peakR, float flex, uint16_t fsr)
   // maxFreq = minFreq + maxFreq;
   float newValue = analogRead(FLEX_PIN); // or whatever sensor you're using
 
-  // check if difference is >= 10
-  if (abs(newValue - lastFlex) >= 10)
+  // check if difference is >= 50
+  if (abs(newValue - lastFlex) >= 50)
   {
     currentFlex = newValue; // update variable
     lastFlex = newValue;    // remember this value for next time
