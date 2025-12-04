@@ -27,7 +27,7 @@
 #define ANALOG_RESOLUTION_BITS 12
 #define ADC_MAX 4095
 
-#define PIEZO_THRESHOLD 600
+#define PIEZO_THRESHOLD 6000
 #define PIEZO_DEBOUNCE_MS 10
 
 #define FLEX_MIN 250
@@ -126,7 +126,7 @@ static inline float mapf(float x, float inMin, float inMax, float outMin, float 
   return outMin + (outMax - outMin) * ((x - inMin) / (inMax - inMin));
 }
 
-void triggerDrum(uint16_t peakC, uint16_t peakR, float flex, uint16_t fsr); 
+void triggerDrum(uint16_t peakC, uint16_t peakR, float flex, uint16_t fsr);
 // 0..1 velocity from peak
 float velocityNorm(uint16_t peak)
 {
@@ -144,6 +144,23 @@ int flexToIndex(float flex)
   float curved = powf(n, FLEX_EXPONENT);            // exponential feel
   int idx = (int)(curved * 3.999f);                 // 0..3
   return clampi(idx, 0, 3);
+}
+int flexToIndex7(float flex)
+{
+  // clamp to ADC range
+  float c = clampf(flex, 0.0f, 4095.0f);
+
+  // normalize to 0..1
+  float n = c / 4095.0f;
+
+  // exponential feel curve
+  float curved = powf(n, FLEX_EXPONENT);
+
+  // scale to 0..7
+  int idx = (int)(curved * 7.999f);
+
+  // safety
+  return clampi(idx, 0, 7);
 }
 
 // FSR → KS damping (0.1 resonant, 0.95 dead), then adjust by velocity for brightness
@@ -241,10 +258,10 @@ void piezoISR()
       (now - lastHitMs > PIEZO_DEBOUNCE_MS))
   {
     lastHitMs = now;
-    //BaseType_t hpw = pdFALSE;
-    // vTaskNotifyGiveFromISR(PlayTaskHandle, &hpw);
-    // portYIELD_FROM_ISR(hpw);
-    //  Snapshot sensor state
+    // BaseType_t hpw = pdFALSE;
+    //  vTaskNotifyGiveFromISR(PlayTaskHandle, &hpw);
+    //  portYIELD_FROM_ISR(hpw);
+    //   Snapshot sensor state
     uint16_t peakC, peakR;
     float flexLocal;
     noInterrupts();
@@ -292,7 +309,7 @@ void piezoISR()
 // ------------------- TRIGGER DRUM -------------------
 void triggerDrum(uint16_t peakC, uint16_t peakR, float flex, uint16_t fsr)
 {
-  uint16_t peak = max(peakC, peakR);
+  uint16_t peak = peakC; // max(peakC, peakR); rim isnt in use
   if (peak < PIEZO_THRESHOLD)
     return;
 
@@ -305,9 +322,9 @@ void triggerDrum(uint16_t peakC, uint16_t peakR, float flex, uint16_t fsr)
   int blockStart = rimHit ? 4 : 0;
 
   // Flex -> 0..3 inside the block
-  int flexIdx = flexToIndex(flex);
-  int noteIndex = blockStart + flexIdx;
-  noteIndex = clampi(noteIndex, 0, 7);
+  int flexIdx = flexToIndex7(flex);
+  int noteIndex = flexIdx; // blockStart + flexIdx;
+  // noteIndex = clampi(noteIndex, 0, 7);
   float noteFreq = gNotes[noteIndex];
 
   // FSR -> damping / decay only
@@ -341,7 +358,7 @@ void triggerDrum(uint16_t peakC, uint16_t peakR, float flex, uint16_t fsr)
 
   // FM envelope shaped by FSR (short vs long)
   float fsrN = (float)fsr / (float)ADC_MAX;
-  float decayMs = 10.0f + (1.0f - fsrN) * 35.0f; // more FSR -> shorter
+  float decayMs = 10.0f + (1.0f - fsrN) * 15.0f; // more FSR -> shorter
   float releaseMs = 30.0f + (1.0f - fsrN) * 50.0f;
 
   fmEnv.attack(1);
@@ -454,7 +471,7 @@ void setup()
   mixer.gain(3, 0.0f); // unused
 
   analogReadResolution(ANALOG_RESOLUTION_BITS);
-  analogReadAveraging(1);
+  analogReadAveraging(10);
 
   smoothedFlex = analogReadFast(FLEX_PIN);
 
