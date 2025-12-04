@@ -18,10 +18,10 @@
 #define analogReadFast(pin) analogRead(pin)
 
 // ------------------- PINS -------------------
-#define PIEZO_CENTER_PIN A0
+#define PIEZO_CENTER_PIN A2
 #define PIEZO_RIM_PIN A3
 #define FLEX_PIN A1
-#define FSR_PIN A2
+#define FSR_PIN A0
 
 // ------------------- CONFIG -------------------
 #define ANALOG_RESOLUTION_BITS 12
