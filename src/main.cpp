@@ -11,8 +11,14 @@
 #define PIEZO_DEBOUNCE_MS     40
 #define FLEX_SMOOTH_ALPHA   0.2f
 
+// ----------------------------- Pitch & Gain Constants -----------------------------
+const float B_FREQ_MIN = 40.0f;     // min carrier frequency (Hz)
+const float B_FREQ_MAX = 200.0f;    // max carrier frequency (Hz)
+const float OUTPUT_GAIN_MIN = 0.6f; // min output gain
+const float OUTPUT_GAIN_MAX = 1.0f; // max output gain
+
 // ---------------------------------------------------------------------------
-// 1) AudioSynthGanGan class (FM drum)
+// AudioSynthGanGan class (FM drum)
 // ---------------------------------------------------------------------------
 class AudioSynthGanGan : public AudioStream {
 public:
@@ -38,7 +44,7 @@ public:
         envAttack  = 0.001f;
         outputGain = 0.4f;
 
-        // Internal
+        // Internal state
         phaseA = phaseB = phaseSub = 0.0f;
         sweepT = 1.0f;
         envT   = 1.0f;
@@ -168,12 +174,12 @@ void setup()
 
     AudioMemory(12);
 
-    ganGan.setBFreq(46.0f);
+    ganGan.setBFreq(B_FREQ_MIN);
     ganGan.setEnvDur(0.62f);
 }
 
 // ---------------------------------------------------------------------------
-// Loop with sensors and serial debug
+// Loop with sensors, full serial debug, flex controls pitch
 // ---------------------------------------------------------------------------
 void loop()
 {
@@ -193,16 +199,18 @@ void loop()
     // --- Flex sensor smoothing ---
     smoothedFlex = smoothedFlex*(1.0f - FLEX_SMOOTH_ALPHA) + flex*FLEX_SMOOTH_ALPHA;
 
-    // Map flex to cutoff (optional, currently just printing)
-    float cutoff = map(smoothedFlex, 250, 3800, 300, 12000);
-    cutoff = constrain(cutoff,300,12000);
+    // --- Map smoothed flex to carrier frequency ---
+    float normFlex = constrain(smoothedFlex, 250.0f, 3800.0f);
+    normFlex = (normFlex - 250.0f) / (3800.0f - 250.0f);  // 0..1
+    float carrierFreq = B_FREQ_MIN + normFlex*(B_FREQ_MAX - B_FREQ_MIN);
+    ganGan.setBFreq(carrierFreq);
 
-    // FSR to gain + envDur
-    float fsrNorm = constrain((float)fsr/4095.0f,0.0f,1.0f);
-    float gain = 0.25f + fsrNorm*0.75f;
-    ganGan.setOutputGain(gain*0.4f);
+    // --- FSR controls output gain and envDur ---
+    float fsrNorm = constrain((float)fsr / 4095.0f, 0.0f, 1.0f);
+    float gain = OUTPUT_GAIN_MIN + fsrNorm*(OUTPUT_GAIN_MAX - OUTPUT_GAIN_MIN);
+    ganGan.setOutputGain(gain);
 
-    float envDur = ganGan.envDurBase*(0.6f+0.4f*(1.0f - fsrNorm));
+    float envDur = ganGan.envDurBase*(0.6f + 0.4f*(1.0f - fsrNorm));
     envDur = constrain(envDur,0.1f,1.0f);
     ganGan.setEnvDur(envDur);
 
@@ -211,7 +219,7 @@ void loop()
     Serial.print(hit ? " HIT! " : " no ");
     Serial.print(" Flex(raw)="); Serial.print(flex);
     Serial.print(" smoothed="); Serial.print(smoothedFlex);
-    Serial.print(" Cutoff="); Serial.print(cutoff);
+    Serial.print(" CarrierFreq="); Serial.print(carrierFreq);
     Serial.print(" FSR="); Serial.print(fsr);
     Serial.print(" Gain="); Serial.print(gain);
     Serial.print(" EnvDur="); Serial.println(envDur);
