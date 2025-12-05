@@ -28,11 +28,13 @@ void setup() {
   Serial.print("drum_raw_len (words): ");
   Serial.println(drum_raw_len);
 
-  // Try to start playback once
-  if (playMem.play(drum_raw) == 0) {
-    Serial.println("playMem.play() returned 0 -> likely failed to start.");
-  } else {
+  // Start playback once and report status via isPlaying()
+  playMem.play(drum_raw);
+  delay(10); // allow audio engine to begin
+  if (playMem.isPlaying()) {
     Serial.println("play started.");
+  } else {
+    Serial.println("play did NOT start. Check drum_raw header and AudioMemory.");
   }
 }
 
@@ -49,8 +51,10 @@ void loop() {
   if (!playMem.isPlaying()) {
     delay(250); // small gap
     Serial.println("Triggering playMem.play(drum_raw)");
-    if (playMem.play(drum_raw) == 0) {
-      Serial.println("play failed (0). Check drum_raw header and memory.");
+    playMem.play(drum_raw);
+    delay(10);
+    if (!playMem.isPlaying()) {
+      Serial.println("play failed. Check drum_raw header and memory.");
       // don't spam attempts
       delay(1000);
     } else {
