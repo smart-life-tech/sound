@@ -19,11 +19,11 @@
 #define FSR_PIN A0
 
 // ------------------- CONFIG -------------------
-#define PIEZO_THRESHOLD 250
+#define PIEZO_THRESHOLD 150
 #define PIEZO_DEBOUNCE_MS 50
 
-#define FLEX_MIN 250
-#define FLEX_MAX 3800
+#define FLEX_MIN 30
+#define FLEX_MAX 1023
 #define FLEX_SMOOTH_ALPHA 0.24f
 
 // =============== GANGAN SYNTH CLASS ===============
