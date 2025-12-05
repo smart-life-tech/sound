@@ -1,18 +1,15 @@
 /*
-   Teensy 4.x PLAYBACK WITH REAL-TIME SENSOR MODULATION
-   - Primary: AudioPlayMemory plays drum_raw (authentic sample)
-   - Modulation: 
-     * Flex sensor (A1) → Filter cutoff (brightness)
-     * FSR sensor (A0) → Playback volume (sustain shortening)
-     * Piezo sensor (A2) → Trigger playback on hit
-   - Result: Original audio fidelity + expressive sensor control
+   Teensy 4.x GAN-GAN SYNTHESIS WITH REAL-TIME SENSOR MODULATION
+   - GanGan synth: FM attack + harmonic body + subharmonic jitter
+   - Parameters tuned for expressive drum sound
+   - Flex sensor (A1) → Base frequency (pitch control)
+   - FSR sensor (A0) → Output gain (sustain/volume control)
+   - Piezo sensor (A2) → Trigger noteOn
 */
 
 #include <Arduino.h>
 #include <Audio.h>
 #include <math.h>
-
-#include "drum_raw.h" // AudioPlayMemory-compatible header
 
 #define analogReadFast(pin) analogRead(pin)
 
@@ -29,18 +26,121 @@
 #define FLEX_MAX 3800
 #define FLEX_SMOOTH_ALPHA 0.24f
 
+// =============== GANGAN SYNTH CLASS ===============
+class AudioSynthGanGan : public AudioStream {
+public:
+    AudioSynthGanGan() : AudioStream(0, NULL) {
+        aStartFreq = 600.0f;
+        aStopFreq = 6.0f;
+        aStartAmp = 1.0f;
+        aStopAmp = 0.2f;
+        aDuration = 0.21f;
+        aKnee = 1;
+
+        bFreq = 46.0f;
+        bSubFreq = 71.0f;
+        bAmp = 1.0f;
+        bSubStd = 0.2f;
+
+        envDurBase = 0.62f;
+        envDur = envDurBase;
+        envAttack = 0.001f;
+        outputGain = 0.4f;
+
+        phaseA = phaseB = phaseSub = 0.0f;
+        sweepT = 1.0f;
+        envT = 1.0f;
+        active = false;
+
+        sampleRate = AUDIO_SAMPLE_RATE_EXACT;
+        twoPI = 2.0f * M_PI;
+
+        fmDepthScale = 0.65f;
+        sweepSpreadScale = 0.60f;
+    }
+
+    virtual void update(void) override {
+        audio_block_t *block = allocate();
+        if (!block) return;
+        float invSR = 1.0f / sampleRate;
+        for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++) {
+            float out = 0.0f;
+            if (active) {
+                sweepT += 1.0f / (aDuration * sampleRate);
+                if (sweepT > 1.0f) sweepT = 1.0f;
+                float k = sweepT;
+                if (aKnee == 1) k = sweepT * sweepT;
+                else if (aKnee == 2) k = sqrtf(sweepT);
+                float fA = aStartFreq + (aStopFreq - aStartFreq) * (k * sweepSpreadScale);
+                float aA = aStartAmp + (aStopAmp - aStartAmp) * k;
+                
+                phaseA += fA * invSR;
+                if (phaseA >= 1.0f) phaseA -= floorf(phaseA);
+                float modA = sinf(twoPI * phaseA) * (aA * fmDepthScale);
+                
+                phaseB += bFreq * invSR;
+                if (phaseB >= 1.0f) phaseB -= floorf(phaseB);
+                phaseSub += bSubFreq * invSR;
+                if (phaseSub >= 1.0f) phaseSub -= floorf(phaseSub);
+                float jitter = sinf(twoPI * phaseSub) * bSubStd;
+                float toneB = sinf(twoPI * phaseB) * (bAmp + jitter);
+                
+                envT += invSR;
+                float envNorm = envT / envDur;
+                if (envNorm > 1.0f) envNorm = 1.0f;
+                float env;
+                float atkNorm = envAttack / envDur;
+                if (envNorm < atkNorm) env = envNorm / atkNorm;
+                else {
+                    float t = (envNorm - atkNorm) / (1.0f - atkNorm);
+                    env = expf(-5.0f * t);
+                }
+                out = (1.0f + modA) * toneB * env * outputGain;
+                if (sweepT >= 1.0f && envNorm >= 1.0f) active = false;
+            }
+            if (out > 1.0f) out = 1.0f;
+            if (out < -1.0f) out = -1.0f;
+            block->data[i] = (int16_t)(out * 32767.0f);
+        }
+        transmit(block);
+        release(block);
+    }
+
+    void setBFreq(float v) { bFreq = v; }
+    void setEnvDur(float v) { envDur = max(0.1f, v); }
+    void setOutputGain(float v) { outputGain = constrain(v, 0.0f, 1.0f); }
+    void noteOn() {
+        sweepT = 0.0f;
+        envT = 0.0f;
+        phaseB += random(0, 100) * 1e-5f;
+        active = true;
+    }
+    bool isActive() const { return active; }
+
+private:
+    float aStartFreq, aStopFreq, aStartAmp, aStopAmp, aDuration;
+    uint8_t aKnee;
+    float bFreq, bSubFreq, bAmp, bSubStd;
+    float envDur, envAttack, outputGain;
+    float phaseA, phaseB, phaseSub;
+    float sweepT, envT;
+    bool active;
+    float sampleRate, twoPI;
+    float fmDepthScale, sweepSpreadScale;
+    
+public:
+    float envDurBase;
+};
+
+
 // =============== AUDIO OBJECTS ===============
-AudioPlayMemory playMem;
-AudioFilterStateVariable filter;
-AudioMixer4 mixer;
+AudioSynthGanGan ganGan;
 AudioOutputI2S i2s1;
 AudioControlSGTL5000 audioShield;
 
-// Routing: playMem → filter → mixer → I2S out
-AudioConnection patchCord1(playMem, 0, filter, 0);
-AudioConnection patchCord2(filter, 0, mixer, 0);
-AudioConnection patchCord3(mixer, 0, i2s1, 0);
-AudioConnection patchCord4(mixer, 0, i2s1, 1);
+// Routing: ganGan → I2S out
+AudioConnection patchCord1(ganGan, 0, i2s1, 0);
+AudioConnection patchCord2(ganGan, 0, i2s1, 1);
 
 // =============== GLOBAL STATE ===============
 volatile uint16_t piezoCenterPeak = 0;
@@ -48,7 +148,7 @@ volatile uint32_t lastHitMs = 0;
 volatile float smoothedFlex = 0.0f;
 volatile bool inPeakState = false;
 volatile uint16_t currentFSR = 0;
-// =============== ISR: PIEZO EDGE DETECTION & PLAYBACK TRIGGER ===============
+// =============== ISR: PIEZO EDGE DETECTION & GANGAN TRIGGER ===============
 void piezoISR() {
   uint32_t nowMs = millis();
   uint16_t piezoRaw = analogReadFast(PIEZO_CENTER_PIN);
@@ -72,10 +172,10 @@ void piezoISR() {
     if (nowMs - lastHitMs >= PIEZO_DEBOUNCE_MS) {
       lastHitMs = nowMs;
       
-      // TRIGGER: Play drum sample if not already playing
-      if (!playMem.isPlaying()) {
-        playMem.play(drum_raw);
-        Serial.println("PLAY");
+      // TRIGGER: noteOn if not already active
+      if (!ganGan.isActive()) {
+        ganGan.noteOn();
+        Serial.println(">>> GAN-GAN NOTEON <<<");
       }
     }
   } else if (piezoRaw < (PIEZO_THRESHOLD / 2)) {
@@ -88,23 +188,17 @@ void piezoISR() {
 void setup() {
   Serial.begin(115200);
   delay(100);
-  Serial.println("\n=== Teensy 4.x PLAYBACK WITH SENSOR MODULATION ===");
+  Serial.println("\n=== Teensy 4.x GAN-GAN SYNTH WITH SENSOR MODULATION ===");
   
   // Audio setup
-  AudioMemory(20);
+  AudioMemory(12);
   audioShield.enable();
   audioShield.volume(0.7);
   
-  // Initialize filter (low-pass for tone control)
-  filter.frequency(4000);  // start neutral (bright)
-  filter.resonance(0.7);
-  filter.octaveControl(1.0);
-  
-  // Mixer setup
-  mixer.gain(0, 1.0);  // playback channel
-  mixer.gain(1, 0.0);  // unused
-  mixer.gain(2, 0.0);  // unused
-  mixer.gain(3, 0.0);  // unused
+  // GanGan initialization with provided parameters
+  ganGan.setBFreq(46.0f);        // base frequency (body)
+  ganGan.setEnvDur(0.62f);       // envelope duration (s)
+  ganGan.setOutputGain(0.4f);    // output gain
   
   // Sensor pins
   pinMode(PIEZO_CENTER_PIN, INPUT);
@@ -118,7 +212,8 @@ void setup() {
   currentFSR = 0;
   inPeakState = false;
   
-  Serial.println("Setup complete. Ready for hits!");
+  Serial.println("GAN-GAN Setup complete. Ready for hits!");
+  Serial.println("Flex → Base Freq | FSR → Output Gain");
 }
 
 // =============== MAIN LOOP: SENSOR POLLING & REAL-TIME MODULATION ===============
@@ -126,27 +221,28 @@ void loop() {
   // Poll sensors continuously
   piezoISR();
   
-  // 1. FLEX → Filter cutoff (brightness control)
-  // Map smoothed Flex [FLEX_MIN, FLEX_MAX] → cutoff [500Hz, 4000Hz]
+  // 1. FLEX → GanGan Base Frequency (bFreq)
+  // Map smoothed Flex [FLEX_MIN, FLEX_MAX] → frequency [40Hz, 800Hz]
   float flexNorm = (smoothedFlex - FLEX_MIN) / (FLEX_MAX - FLEX_MIN);
   flexNorm = constrain(flexNorm, 0.0f, 1.0f);
   
-  // Expressive: low = dark (500 Hz), high = bright (4000 Hz)
-  float flexCutoff = 500.0f + (3500.0f * flexNorm);
-  filter.frequency(flexCutoff);
+  // Expressive: low = deep (40 Hz), high = soprano (800 Hz)
+  // Using exponential curve for musical pitch spacing
+  float flexFreq = 40.0f * powf(20.0f, flexNorm);  // 40 Hz @ flexNorm=0 to 800 Hz @ flexNorm=1
+  ganGan.setBFreq(flexFreq);
   
-  // 2. FSR → Playback volume (sustain control)
-  // Map FSR [0, 1023] → gain [1.0, 0.0]
+  // 2. FSR → GanGan Output Gain (volume control)
+  // Map FSR [0, 1023] → gain [0.4, 1.0]
   float fsrNorm = currentFSR / 1023.0f;
-  float playbackGain = 1.0f - fsrNorm;  // inverted: press FSR = lower volume
-  mixer.gain(0, playbackGain);
+  float outputGain = 0.4f + (0.6f * fsrNorm);  // FSR pressed = louder (sustain)
+  ganGan.setOutputGain(outputGain);
   
   // Debug output (500ms)
   static uint32_t lastDebugMs = 0;
   if (millis() - lastDebugMs >= 500) {
     lastDebugMs = millis();
-    Serial.printf("Piezo: %4d | Flex: %4.0f (cut: %5.1f Hz) | FSR: %4d (gain: %.2f) | Playing: %d\n",
-                  piezoCenterPeak, smoothedFlex, flexCutoff, currentFSR, playbackGain, playMem.isPlaying());
+    Serial.printf("Piezo: %4d | Flex: %4.0f (freq: %6.1f Hz) | FSR: %4d (gain: %.2f) | Active: %d\n",
+                  piezoCenterPeak, smoothedFlex, flexFreq, currentFSR, outputGain, ganGan.isActive());
   }
   
   delay(2);
