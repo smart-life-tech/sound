@@ -82,14 +82,16 @@ volatile uint32_t lastHitMs = 0;
 volatile float smoothedFlex = 0.0f;
 bool test = true;
 // --- Synth tuning constants (from analyze.py recommendations, tuned for better match) ---
-static constexpr float S_MIN_FREQ = 80.0f;    // raise min to avoid overly deep body
-static constexpr float S_MAX_FREQ = 1000.0f;  // allow full high range if flex requests it
-static constexpr int S_FM_DROP_MS = 80;       // longer pitch drop to reduce metallic harshness
-static constexpr int S_KS_SUSTAIN_MS = 400;   // longer sustain to match original tail
+// Talking-drum tuned defaults (midrange, warmer body)
+static constexpr float S_MIN_FREQ = 120.0f;   // avoid overly deep guitar-like body
+static constexpr float S_MAX_FREQ = 450.0f;   // cap upper range to talking-drum region
+static constexpr int S_FM_DROP_MS = 80;       // pitch drop time (ms)
+static constexpr int S_KS_SUSTAIN_MS = 220;   // default sustain (ms) for talking-drum feel
 // scale down analyzer's aggressive FM/index and noise suggestions to avoid metallic harshness
 // Reduce FM/noise aggressively to avoid metallic timbre
-static constexpr float S_FM_INDEX_SCALE = 0.03f; // scale applied to fm index (very small)
-static constexpr float S_NOISE_LEVEL_SCALE = 0.12f; // scale applied to noise amplitude (quieter)
+static constexpr float S_FM_INDEX_SCALE = 0.02f; // FM kept very low for non-metallic tone
+// increase noise transient prominence (helps talking-drum character)
+static constexpr float S_NOISE_LEVEL_SCALE = 0.45f; // stronger transient burst
 
 float minFreq = S_MIN_FREQ;
 float maxFreq = S_MAX_FREQ;
@@ -104,6 +106,12 @@ float gNotes[8] = {
     493.88f, // B4
     523.25f  // C5
 };
+
+// Mixer/KS fade state (soft tail cut to avoid metallic clicks)
+float gMixerKSGainDefault = 1.6f; // controlled default for KS mixer channel
+bool gKsFadeActive = false;
+uint32_t gKsFadeStartMs = 0;
+const uint32_t G_KS_FADE_MS = 40; // fade duration in ms
 
 // ------------ Pitch Envelope for FM carrier ------------
 struct PitchEnvState
@@ -352,6 +360,9 @@ void triggerDrum(uint16_t peakC, float flex, uint16_t fsr)
   // KS amplitude should NOT be reduced by FSR; preserve full hit amplitude
   // Target analysis shows strong presence throughout the decay, so higher velocity helps
   float ksVel = 0.5f + velN * 0.5f; // 0.5..1.0 (increased from 0.3..1.0)
+  // restore KS mixer gain and cancel any fade in progress
+  mixer.gain(1, gMixerKSGainDefault);
+  gKsFadeActive = false;
   ks.noteOn(noteFreq, ksVel);
 
   // If FSR pressed strongly, cut sustain quickly; otherwise scale sustain inversely
@@ -490,8 +501,8 @@ void setup()
     audioShield.volume(1.0f);
 
     mixer.gain(0, 0.0f); // FM muted at mixer
-    mixer.gain(1, 1.4f); // KS gain lowered to avoid over-bright/over-driven body
-    mixer.gain(2, 0.0f); // Noise muted at mixer to keep transient subtle
+    mixer.gain(1, gMixerKSGainDefault); // KS gain (controlled default)
+    mixer.gain(2, 0.8f); // Noise present to provide transient 'talking' character
     mixer.gain(3, 0.0f); // unused
 
     analogReadResolution(ANALOG_RESOLUTION_BITS);
@@ -559,20 +570,42 @@ void loop()
     // Serial.println(c);
     updatePitchEnv();
 
-    // Continuous FSR damping for post-hit decay control
+    // Continuous FSR damping for post-hit decay control (conservative mapping)
     uint16_t fsr = analogReadFast(FSR_PIN);
     float fsrN = (float)fsr / 1024.0f;
-    float q = 4.0f - fsrN * 3.9f; // higher FSR = lower Q = more damping, down to 0.1
+    // Keep resonance in a mild range to avoid metallic ringing
+    float q = 1.5f - fsrN * 1.3f; // 1.5 .. ~0.2
+    q = clampf(q, 0.2f, 1.5f);
     ksFilter.resonance(q);
 
     // Call ISR processing (keeps existing behaviour)
     piezoISR();
 
-    // Enforce scheduled KS note-off to limit settling to ~500 ms
+    // Enforce scheduled KS note-off: start a short soft fade instead of abrupt kill
     if (ksNoteOffMs != 0 && millis() >= ksNoteOffMs)
     {
-      ks.noteOff(1.0f);
+      // start fade
+      gKsFadeActive = true;
+      gKsFadeStartMs = millis();
       ksNoteOffMs = 0;
+    }
+
+    // Process KS fade if active
+    if (gKsFadeActive)
+    {
+      uint32_t e = millis() - gKsFadeStartMs;
+      if (e < G_KS_FADE_MS)
+      {
+        float t = (float)e / (float)G_KS_FADE_MS;
+        float newGain = gMixerKSGainDefault * (1.0f - t);
+        mixer.gain(1, newGain);
+      }
+      else
+      {
+        mixer.gain(1, 0.0f);
+        ks.noteOff(1.0f);
+        gKsFadeActive = false;
+      }
     }
   }
 }
