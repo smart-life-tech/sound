@@ -2,182 +2,219 @@
 #include <Audio.h>
 #include <math.h>
 
-// ---------------------------------------------------------------------------
-// 1) CLASS DEFINITION MUST COME FIRST
-// ---------------------------------------------------------------------------
+// ----------------------------- Sensor Pins -----------------------------
+#define PIEZO_PIN A2
+#define FLEX_PIN  A1
+#define FSR_PIN   A0
 
+#define PIEZO_THRESHOLD      250
+#define PIEZO_DEBOUNCE_MS     40
+#define FLEX_SMOOTH_ALPHA   0.2f
+
+// ---------------------------------------------------------------------------
+// 1) AudioSynthGanGan class (FM drum)
+// ---------------------------------------------------------------------------
 class AudioSynthGanGan : public AudioStream {
 public:
     AudioSynthGanGan() : AudioStream(0, NULL)
     {
-        aStartFreq = 2.0f;
-        aStopFreq  = 40.0f;
-        aStartAmp  = 0.1f;
-        aStopAmp   = 1.0f;
-        aDuration  = 0.20f;
-        aKnee      = 0;
+        // Exciter defaults
+        aStartFreq = 600.0f;
+        aStopFreq  = 6.0f;
+        aStartAmp  = 1.0f;
+        aStopAmp   = 0.2f;
+        aDuration  = 0.21f;
+        aKnee      = 1;
 
-        bFreq      = 220.0f;
-        bSubFreq   = 36.0f;
+        // Resonator defaults
+        bFreq      = 46.0f;
+        bSubFreq   = 71.0f;
         bAmp       = 1.0f;
-        bSubStd    = 0.05f;
+        bSubStd    = 0.2f;
 
-        envDur     = 0.35f;
+        // Envelope
+        envDurBase = 0.62f;
+        envDur     = envDurBase;
         envAttack  = 0.001f;
         outputGain = 0.4f;
 
+        // Internal
         phaseA = phaseB = phaseSub = 0.0f;
         sweepT = 1.0f;
         envT   = 1.0f;
-
         active = false;
 
         sampleRate = AUDIO_SAMPLE_RATE_EXACT;
         twoPI = 2.0f * (float)M_PI;
+
+        // Anti-metallic scaling
+        fmDepthScale      = 0.65f;
+        sweepSpreadScale  = 0.60f;
     }
 
-    // The per-sample generator
-    virtual void update(void)
+    virtual void update(void) override
     {
         audio_block_t *block = allocate();
         if (!block) return;
 
-        const float invSR = 1.0f / sampleRate;
+        float invSR = 1.0f / sampleRate;
 
-        for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
+        for (int i=0; i<AUDIO_BLOCK_SAMPLES; i++)
         {
             float out = 0.0f;
 
-            if (active)
+            if(active)
             {
                 sweepT += 1.0f / (aDuration * sampleRate);
-                if (sweepT > 1.0f) sweepT = 1.0f;
+                if(sweepT > 1.0f) sweepT = 1.0f;
 
                 float k = sweepT;
-                if (aKnee == 1) k = sweepT * sweepT;
-                else if (aKnee == 2) k = sqrtf(sweepT);
+                if(aKnee==1) k = sweepT*sweepT;
+                else if(aKnee==2) k = sqrtf(sweepT);
 
-                float fA = aStartFreq + (aStopFreq - aStartFreq) * k;
-                float aA = aStartAmp  + (aStopAmp  - aStartAmp ) * k;
+                float fA = aStartFreq + (aStopFreq - aStartFreq)*(k*sweepSpreadScale);
+                float aA = aStartAmp  + (aStopAmp - aStartAmp)*k;
 
-                phaseA += fA * invSR;
-                if (phaseA >= 1.0f) phaseA -= floorf(phaseA);
-                float modA = sinf(twoPI * phaseA) * aA;
+                phaseA += fA*invSR;
+                if(phaseA>=1.0f) phaseA -= floorf(phaseA);
+                float modA = sinf(twoPI*phaseA)*(aA*fmDepthScale);
 
-                phaseB += bFreq * invSR;
-                if (phaseB >= 1.0f) phaseB -= floorf(phaseB);
+                phaseB += bFreq*invSR;
+                if(phaseB>=1.0f) phaseB -= floorf(phaseB);
 
-                phaseSub += bSubFreq * invSR;
-                if (phaseSub >= 1.0f) phaseSub -= floorf(phaseSub);
+                phaseSub += bSubFreq*invSR;
+                if(phaseSub>=1.0f) phaseSub -= floorf(phaseSub);
 
-                float jitter = sinf(twoPI * phaseSub) * bSubStd;
-                float toneB = sinf(twoPI * phaseB) * (bAmp + jitter);
+                float jitter = sinf(twoPI*phaseSub)*bSubStd;
+                float toneB = sinf(twoPI*phaseB)*(bAmp+jitter);
 
                 envT += invSR;
-                float envNorm = envT / envDur;
-                if (envNorm >= 1.0f) envNorm = 1.0f;
+                float envNorm = envT/envDur;
+                if(envNorm>=1.0f) envNorm=1.0f;
 
                 float env;
-                float atkNorm = envAttack / envDur;
-
-                if (envNorm < atkNorm) {
-                    env = envNorm / atkNorm;
-                } else {
-                    float t = (envNorm - atkNorm) / (1.0f - atkNorm);
-                    env = expf(-5.0f * t);
+                float atkNorm = envAttack/envDur;
+                if(envNorm<atkNorm) env = envNorm/atkNorm;
+                else {
+                    float t = (envNorm - atkNorm)/(1.0f - atkNorm);
+                    env = expf(-5.0f*t);
                 }
 
-                out = (1.0f + modA) * toneB * env * outputGain;
+                out = (1.0f + modA)*toneB*env*outputGain;
 
-                if (sweepT >= 1.0f && envNorm >= 1.0f)
-                    active = false;
+                if(sweepT>=1.0f && envNorm>=1.0f) active=false;
             }
 
-            if (out > 1.0f) out = 1.0f;
-            if (out < -1.0f) out = -1.0f;
+            if(out>1.0f) out=1.0f;
+            if(out<-1.0f) out=-1.0f;
 
-            block->data[i] = (int16_t)(out * 32767.0f);
+            block->data[i] = (int16_t)(out*32767.0f);
         }
 
         transmit(block);
         release(block);
     }
 
-    // Parameter setters
-    void setAStartFreq(float v) { aStartFreq = v; }
-    void setAStopFreq(float v)  { aStopFreq = v; }
-    void setAStartAmp(float v)  { aStartAmp = v; }
-    void setAStopAmp(float v)   { aStopAmp = v; }
-    void setADuration(float v)  { aDuration = v; }
-    void setAKnee(uint8_t v)    { aKnee = v; }
+    // Setters
+    void setBFreq(float v){ bFreq = v; }
+    void setEnvDur(float v){ envDur = max(0.1f, v); }
+    void setOutputGain(float v){ outputGain = v; }
 
-    void setBFreq(float v)     { bFreq = v; }
-    void setBSubFreq(float v)  { bSubFreq = v; }
-    void setBAmp(float v)      { bAmp = v; }
-    void setBSubStd(float v)   { bSubStd = v; }
-
-    void setEnvDur(float v)     { envDur = v; }
-    void setOutputGain(float v) { outputGain = v; }
-
-    void noteOn()
-    {
+    void noteOn() {
         sweepT = 0.0f;
         envT   = 0.0f;
+        phaseB += random(0,100)*1e-5f;
         active = true;
+        Serial.println(">>> noteOn fired");
     }
 
+    bool isActive() const { return active; }
+    float envDurBase;
+
 private:
-    float aStartFreq, aStopFreq, aStartAmp, aStopAmp, aDuration;
+    float aStartFreq,aStopFreq,aStartAmp,aStopAmp,aDuration;
     uint8_t aKnee;
-    float bFreq, bSubFreq, bAmp, bSubStd;
-    float envDur, envAttack, outputGain;
-
-    float phaseA, phaseB, phaseSub;
-    float sweepT;
-    float envT;
+    float bFreq,bSubFreq,bAmp,bSubStd;
+    float envDur,envAttack,outputGain;
+    float phaseA,phaseB,phaseSub;
+    float sweepT,envT;
     bool active;
-
-    float sampleRate;
-    float twoPI;
+    float sampleRate,twoPI;
+    float fmDepthScale,sweepSpreadScale;
 };
 
 // ---------------------------------------------------------------------------
-// 2) GLOBAL AUDIO OBJECTS (OK now because class exists above)
+// Audio objects
 // ---------------------------------------------------------------------------
-
 AudioSynthGanGan ganGan;
 AudioOutputI2S   i2sOut;
-AudioConnection  patchCord1(ganGan, 0, i2sOut, 0);
-AudioConnection  patchCord2(ganGan, 0, i2sOut, 1);
+AudioConnection  patch1(ganGan,0,i2sOut,0);
+AudioConnection  patch2(ganGan,0,i2sOut,1);
 
 // ---------------------------------------------------------------------------
-// 3) SETUP
+// Globals
 // ---------------------------------------------------------------------------
+float smoothedFlex = 0.0f;
+uint32_t lastHitMs = 0;
 
+// ---------------------------------------------------------------------------
+// Setup
+// ---------------------------------------------------------------------------
 void setup()
 {
+    Serial.begin(115200);
+    delay(800);
+    Serial.println("\n=== GAN-GAN FM DRUM START ===");
+
     AudioMemory(12);
 
     ganGan.setBFreq(46.0f);
     ganGan.setEnvDur(0.62f);
-
-    ganGan.setAStartFreq(600.0f);
-    ganGan.setAStopFreq(6.0f);
-    ganGan.setAStartAmp(1.0f);
-    ganGan.setAStopAmp(0.2f);
-    ganGan.setADuration(0.21f);
-    ganGan.setAKnee(1);
 }
 
 // ---------------------------------------------------------------------------
-// 4) LOOP
+// Loop with sensors and serial debug
 // ---------------------------------------------------------------------------
-
 void loop()
 {
-    static uint32_t next = 0;
-    if (millis() > next) {
+    uint16_t piezo = analogRead(PIEZO_PIN);
+    uint16_t flex  = analogRead(FLEX_PIN);
+    uint16_t fsr   = analogRead(FSR_PIN);
+
+    uint32_t now = millis();
+
+    // --- Piezo trigger ---
+    bool hit = (piezo > PIEZO_THRESHOLD) && (now - lastHitMs > PIEZO_DEBOUNCE_MS);
+    if(hit) {
         ganGan.noteOn();
-        next = millis() + 600;
+        lastHitMs = now;
     }
+
+    // --- Flex sensor smoothing ---
+    smoothedFlex = smoothedFlex*(1.0f - FLEX_SMOOTH_ALPHA) + flex*FLEX_SMOOTH_ALPHA;
+
+    // Map flex to cutoff (optional, currently just printing)
+    float cutoff = map(smoothedFlex, 250, 3800, 300, 12000);
+    cutoff = constrain(cutoff,300,12000);
+
+    // FSR to gain + envDur
+    float fsrNorm = constrain((float)fsr/4095.0f,0.0f,1.0f);
+    float gain = 0.25f + fsrNorm*0.75f;
+    ganGan.setOutputGain(gain*0.4f);
+
+    float envDur = ganGan.envDurBase*(0.6f+0.4f*(1.0f - fsrNorm));
+    envDur = constrain(envDur,0.1f,1.0f);
+    ganGan.setEnvDur(envDur);
+
+    // --- Serial debug ---
+    Serial.print("Piezo="); Serial.print(piezo);
+    Serial.print(hit ? " HIT! " : " no ");
+    Serial.print(" Flex(raw)="); Serial.print(flex);
+    Serial.print(" smoothed="); Serial.print(smoothedFlex);
+    Serial.print(" Cutoff="); Serial.print(cutoff);
+    Serial.print(" FSR="); Serial.print(fsr);
+    Serial.print(" Gain="); Serial.print(gain);
+    Serial.print(" EnvDur="); Serial.println(envDur);
+
+    delay(20);
 }
