@@ -36,7 +36,7 @@
 
 // =============== AUDIO OBJECTS ===============
 // Playback
-AudioPlayMemory       playMem;
+AudioPlayMemory playMem;
 
 // Synthesis: FM attack
 AudioSynthWaveform fmMod;
@@ -85,11 +85,11 @@ volatile float smoothedFlex = 0.0f;
 volatile bool inPeakState = false; // peak-tracking for ISR
 
 // Synth tuning constants (from analyze.py: precisely matched to original audio)
-static constexpr float S_MIN_FREQ = 47.5f;        // Hz (analyzed: 47.5 Hz min)
-static constexpr float S_MAX_FREQ = 189.1f;       // Hz (analyzed: 189.1 Hz max)
-static constexpr int S_FM_DROP_MS = 9;            // ms (analyzed: 9.3 ms pitch drop)
-static constexpr int S_KS_SUSTAIN_MS = 30;        // ms (analyzed: 30 ms sustain - VERY SHORT)
-static constexpr float S_FM_INDEX_SCALE = 12.10f; // FM strength (analyzed: 12.1 - strong attack)
+static constexpr float S_MIN_FREQ = 47.5f;          // Hz (analyzed: 47.5 Hz min)
+static constexpr float S_MAX_FREQ = 189.1f;         // Hz (analyzed: 189.1 Hz max)
+static constexpr int S_FM_DROP_MS = 9;              // ms (analyzed: 9.3 ms pitch drop)
+static constexpr int S_KS_SUSTAIN_MS = 30;          // ms (analyzed: 30 ms sustain - VERY SHORT)
+static constexpr float S_FM_INDEX_SCALE = 12.10f;   // FM strength (analyzed: 12.1 - strong attack)
 static constexpr float S_NOISE_LEVEL_SCALE = 0.91f; // noise level (analyzed: 0.91)
 
 float minFreq = S_MIN_FREQ;
@@ -102,7 +102,8 @@ uint32_t gKsFadeStartMs = 0;
 const uint32_t G_KS_FADE_MS = 40;
 
 // Pitch envelope
-struct PitchEnvState {
+struct PitchEnvState
+{
   bool active;
   float startFreq;
   float endFreq;
@@ -114,49 +115,59 @@ PitchEnvState gPitchEnv = {false, 0, 0, 0, 0};
 volatile uint32_t ksNoteOffMs = 0;
 
 // =============== HELPERS ===============
-static inline float clampf(float v, float lo, float hi) {
-  return (v < lo) ? lo : (v > hi) ? hi : v;
+static inline float clampf(float v, float lo, float hi)
+{
+  return (v < lo) ? lo : (v > hi) ? hi
+                                  : v;
 }
 
-static inline int clampi(int v, int lo, int hi) {
-  return (v < lo) ? lo : (v > hi) ? hi : v;
+static inline int clampi(int v, int lo, int hi)
+{
+  return (v < lo) ? lo : (v > hi) ? hi
+                                  : v;
 }
 
 void triggerDrum(uint16_t peakC, float flex, uint16_t fsr);
 
-float velocityNorm(uint16_t peak) {
-  if (peak <= PIEZO_THRESHOLD) return 0.0f;
+float velocityNorm(uint16_t peak)
+{
+  if (peak <= PIEZO_THRESHOLD)
+    return 0.0f;
   float n = (float)(peak - PIEZO_THRESHOLD) / (float)(ADC_MAX - PIEZO_THRESHOLD);
   return clampf(n, 0.0f, 1.0f);
 }
 
-float fmIndexFromVelocity(float velNorm) {
+float fmIndexFromVelocity(float velNorm)
+{
   float base = 5.0f + velNorm * 25.0f;
   return base;
 }
 
-float noiseAmpFromVelocity(float velNorm) {
+float noiseAmpFromVelocity(float velNorm)
+{
   float base = 0.2f + velNorm * 0.5f;
   return clampf(base, 0.0f, 1.0f);
 }
 
-void setKSDamping(uint16_t fsr, float velNorm) {
+void setKSDamping(uint16_t fsr, float velNorm)
+{
   float fsrN = (float)fsr / 1024.0f;
   // Analyzed KS filter: cutoff ~172 Hz base, resonance Q ~0.5 (warm, non-metallic)
   // This creates a percussive drum body with minimal ringing
-  float baseCutoff = 172.0f;  // analyzed base from spectral centroid
-  float brightness = velNorm * 100.0f;  // gentle velocity brightness (not aggressive)
-  float finalCutoff = baseCutoff + brightness - fsrN * 80.0f;  // FSR darkens
-  finalCutoff = constrain(finalCutoff, 100.0f, 400.0f);  // narrow range to keep warm
+  float baseCutoff = 172.0f;                                  // analyzed base from spectral centroid
+  float brightness = velNorm * 100.0f;                        // gentle velocity brightness (not aggressive)
+  float finalCutoff = baseCutoff + brightness - fsrN * 80.0f; // FSR darkens
+  finalCutoff = constrain(finalCutoff, 100.0f, 400.0f);       // narrow range to keep warm
   ksFilter.frequency(finalCutoff);
 
   // Low resonance Q to match analyzed warmth and avoid metallic character
-  float q = 0.5f + fsrN * 0.3f;  // stays very low (0.5..0.8) - warm and punchy
+  float q = 0.5f + fsrN * 0.3f; // stays very low (0.5..0.8) - warm and punchy
   q = clampf(q, 0.5f, 0.8f);
   ksFilter.resonance(q);
 }
 
-void startPitchEnv(float startFreq, float endFreq, uint32_t durMs) {
+void startPitchEnv(float startFreq, float endFreq, uint32_t durMs)
+{
   gPitchEnv.active = true;
   gPitchEnv.startFreq = startFreq;
   gPitchEnv.endFreq = endFreq;
@@ -165,11 +176,14 @@ void startPitchEnv(float startFreq, float endFreq, uint32_t durMs) {
   fmCar.frequency(startFreq);
 }
 
-void updatePitchEnv() {
-  if (!gPitchEnv.active) return;
+void updatePitchEnv()
+{
+  if (!gPitchEnv.active)
+    return;
   uint32_t now = millis();
   uint32_t elapsed = now - gPitchEnv.startMs;
-  if (elapsed >= gPitchEnv.durMs) {
+  if (elapsed >= gPitchEnv.durMs)
+  {
     fmCar.frequency(gPitchEnv.endFreq);
     gPitchEnv.active = false;
     return;
@@ -181,7 +195,8 @@ void updatePitchEnv() {
 }
 
 // =============== ISR: SENSOR INPUT ===============
-void piezoISR() {
+void piezoISR()
+{
   uint16_t c = analogReadFast(PIEZO_CENTER_PIN);
 
   if (c > piezoCenterPeak)
@@ -190,7 +205,8 @@ void piezoISR() {
   uint32_t now = millis();
   bool aboveThreshold = (c > PIEZO_THRESHOLD);
 
-  if (aboveThreshold && !inPeakState && (now - lastHitMs > PIEZO_DEBOUNCE_MS)) {
+  if (aboveThreshold && !inPeakState && (now - lastHitMs > PIEZO_DEBOUNCE_MS))
+  {
     inPeakState = true;
     lastHitMs = now;
 
@@ -211,7 +227,9 @@ void piezoISR() {
     Serial.print(fsr);
     Serial.println();
     triggerDrum(peakC, flexLocal, fsr);
-  } else if (!aboveThreshold) {
+  }
+  else if (!aboveThreshold)
+  {
     inPeakState = false;
   }
 
@@ -221,9 +239,11 @@ void piezoISR() {
 }
 
 // =============== TRIGGER DRUM (SYNTH) ===============
-void triggerDrum(uint16_t peakC, float flex, uint16_t fsr) {
+void triggerDrum(uint16_t peakC, float flex, uint16_t fsr)
+{
   uint16_t peak = peakC;
-  if (peak < PIEZO_THRESHOLD) return;
+  if (peak < PIEZO_THRESHOLD)
+    return;
 
   float velN = velocityNorm(peak);
 
@@ -264,9 +284,9 @@ void triggerDrum(uint16_t peakC, float flex, uint16_t fsr) {
   fmMod.amplitude(fmIndex * S_FM_INDEX_SCALE);
 
   // FM pitch attack: analyzed to rise quickly, drop very fast (9ms)
-  float dropAmt = 1.0f + velN * 1.5f;  // more modest rise (1..2.5x)
+  float dropAmt = 1.0f + velN * 1.5f; // more modest rise (1..2.5x)
   float startF = baseFmFreq * dropAmt;
-  uint32_t envDur = (uint32_t)S_FM_DROP_MS;  // very fast drop (9 ms)
+  uint32_t envDur = (uint32_t)S_FM_DROP_MS; // very fast drop (9 ms)
   startPitchEnv(startF, baseFmFreq, envDur);
 
   fmEnv.attack(1);
@@ -287,15 +307,19 @@ void triggerDrum(uint16_t peakC, float flex, uint16_t fsr) {
   noiseEnv.release((int)max(8.0f, 60.0f * (1.0f - fsrN)));
 
   // Per-hit noise cutoff: analyzed at 1600 Hz for warm transient
-  float noiseCut = 1600.0f;  // fixed darker cutoff (not velocity-dependent)
+  float noiseCut = 1600.0f; // fixed darker cutoff (not velocity-dependent)
   noiseFilter.frequency(noiseCut);
   noiseEnv.noteOn();
 }
 
 // =============== SETUP ===============
-void setup() {
+void setup()
+{
   Serial.begin(115200);
-  while (!Serial) { delay(10); }
+  while (!Serial)
+  {
+    delay(10);
+  }
   Serial.println("Hybrid Playback + Synth Online");
 
   // Pins
@@ -311,24 +335,25 @@ void setup() {
   delay(50);
 
   // Mixer gains based on analysis: percussive drum (short, punchy, not sustained)
-  mixer.gain(0, 0.6f);  // playback (reference)
-  mixer.gain(1, 1.0f);  // KS body (moderate - analyzed as short decay)
-  mixer.gain(2, 0.9f);  // noise transient (analyzed: 0.91 level)
-  mixer.gain(3, 0.8f);  // FM attack (analyzed: 12.1 index = strong)
+  mixer.gain(0, 0.6f); // playback (reference)
+  mixer.gain(1, 1.0f); // KS body (moderate - analyzed as short decay)
+  mixer.gain(2, 0.9f); // noise transient (analyzed: 0.91 level)
+  mixer.gain(3, 0.8f); // FM attack (analyzed: 12.1 index = strong)
 
   analogReadResolution(ANALOG_RESOLUTION_BITS);
   analogReadAveraging(1);
   smoothedFlex = analogReadFast(FLEX_PIN);
 
   // Noise filter: tuned for talking drum character (dark, punchy transient)
-  noiseFilter.frequency(1600.0f);  // darker noise (not bright metallic hiss)
-  noiseFilter.resonance(0.4f);     // minimal resonance in noise
+  noiseFilter.frequency(1600.0f); // darker noise (not bright metallic hiss)
+  noiseFilter.resonance(0.4f);    // minimal resonance in noise
 
   Serial.println("Ready. Hit the piezo or play drum_raw sample.");
 }
 
 // =============== LOOP ===============
-void loop() {
+void loop()
+{
   delay(5);
 
   // Update pitch envelope
@@ -345,19 +370,24 @@ void loop() {
   piezoISR();
 
   // KS note-off + fade
-  if (ksNoteOffMs != 0 && millis() >= ksNoteOffMs) {
+  if (ksNoteOffMs != 0 && millis() >= ksNoteOffMs)
+  {
     gKsFadeActive = true;
     gKsFadeStartMs = millis();
     ksNoteOffMs = 0;
   }
 
-  if (gKsFadeActive) {
+  if (gKsFadeActive)
+  {
     uint32_t e = millis() - gKsFadeStartMs;
-    if (e < G_KS_FADE_MS) {
+    if (e < G_KS_FADE_MS)
+    {
       float t = (float)e / (float)G_KS_FADE_MS;
       float newGain = gMixerKSGainDefault * (1.0f - t);
       mixer.gain(1, newGain);
-    } else {
+    }
+    else
+    {
       mixer.gain(1, 0.0f);
       ks.noteOff(1.0f);
       gKsFadeActive = false;
@@ -366,10 +396,10 @@ void loop() {
 
   // Optional: auto-replay drum_raw sample if you want
   // (commented out — uncomment to enable looping playback)
-  /*
-  if (!playMem.isPlaying()) {
+
+  if (!playMem.isPlaying())
+  {
     playMem.play(drum_raw);
     delay(10);
   }
-  */
 }
