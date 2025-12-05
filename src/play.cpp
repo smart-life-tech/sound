@@ -205,8 +205,8 @@ void piezoISR()
         velocity = constrain(velocity, 0.2f, 1.0f);
         ganGan.noteOn(velocity);
         Serial.printf(">>> GAN-GAN NOTEON velocity: %.2f <<<\n", velocity);
-        Serial.printf("Piezo: %4d | Flex: %4.0f (freq: %6.1f Hz) | FSR: %4d (fade: %.2fs) | Active: %d\n",
-                      piezoCenterPeak, smoothedFlex, flexFreq, currentFSR, fadeTime, ganGan.isActive());
+        // Serial.printf("Piezo: %4d | Flex: %4.0f (freq: %6.1f Hz) | FSR: %4d (fade: %.2fs) | Active: %d\n",
+        //               piezoCenterPeak, smoothedFlex, flexFreq, currentFSR, fadeTime, ganGan.isActive());
       }
     }
   }
@@ -276,11 +276,12 @@ void loop()
 
   // Debug output (500ms)
   static uint32_t lastDebugMs = 0;
-  // if (millis() - lastDebugMs >= 500) {
-  //   lastDebugMs = millis();
-  //   Serial.printf("Piezo: %4d | Flex: %4.0f (freq: %6.1f Hz) | FSR: %4d (fade: %.2fs) | Active: %d\n",
-  //                 piezoCenterPeak, smoothedFlex, flexFreq, currentFSR, fadeTime, ganGan.isActive());
-  // }
+  if (millis() - lastDebugMs >= 500)
+  {
+    lastDebugMs = millis();
+    Serial.printf("Piezo: %4d | Flex: %4.0f (freq: %6.1f Hz) | FSR: %4d (fade: %.2fs) | Active: %d\n",
+                  piezoCenterPeak, smoothedFlex, flexFreq, currentFSR, fadeTime, ganGan.isActive());
+  }
 
   // delay(2);
 }
