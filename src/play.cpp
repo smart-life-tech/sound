@@ -30,19 +30,19 @@
 class AudioSynthGanGan : public AudioStream {
 public:
     AudioSynthGanGan() : AudioStream(0, NULL) {
-        aStartFreq = 600.0f;
-        aStopFreq = 6.0f;
-        aStartAmp = 1.0f;
+        aStartFreq = 8.0f;
+        aStopFreq = 3.0f;
+        aStartAmp = 2.0f;
         aStopAmp = 0.2f;
-        aDuration = 0.21f;
+        aDuration = 0.3f;
         aKnee = 1;
 
-        bFreq = 46.0f;
-        bSubFreq = 71.0f;
+        bFreq = 200.0f;
+        bSubFreq = 30.0f;
         bAmp = 1.0f;
-        bSubStd = 0.2f;
+        bSubStd = 0.3f;
 
-        envDurBase = 0.62f;
+        envDurBase = 0.32f;
         envDur = envDurBase;
         envAttack = 0.001f;
         outputGain = 0.4f;
