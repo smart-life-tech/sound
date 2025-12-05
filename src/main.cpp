@@ -52,6 +52,7 @@ AudioSynthKarplusStrong ks;
 // Noise transient
 AudioSynthNoiseWhite noise1;
 AudioEffectEnvelope noiseEnv;
+AudioFilterStateVariable noiseFilter;
 
 // Mixer & output
 AudioMixer4 mixer;
@@ -65,8 +66,9 @@ AudioFilterStateVariable ksFilter;
 AudioConnection patchCordKS(ks, 0, ksFilter, 0);
 AudioConnection patchCordKSOut(ksFilter, 0, mixer, 1); // LP out to mixer
 
-AudioConnection patchCord5(noise1, 0, noiseEnv, 0);
-AudioConnection patchCord6(noiseEnv, 0, mixer, 2);
+AudioConnection patchCord5(noise1, 0, noiseFilter, 0);
+AudioConnection patchCord6(noiseFilter, 0, noiseEnv, 0);
+AudioConnection patchCord6b(noiseEnv, 0, mixer, 2);
 
 AudioConnection patchCord7(mixer, 0, audioOut, 0);
 AudioConnection patchCord8(mixer, 0, audioOut, 1);
@@ -89,9 +91,9 @@ static constexpr int S_FM_DROP_MS = 80;       // pitch drop time (ms)
 static constexpr int S_KS_SUSTAIN_MS = 220;   // default sustain (ms) for talking-drum feel
 // scale down analyzer's aggressive FM/index and noise suggestions to avoid metallic harshness
 // Reduce FM/noise aggressively to avoid metallic timbre
-static constexpr float S_FM_INDEX_SCALE = 0.02f; // FM kept very low for non-metallic tone
-// increase noise transient prominence (helps talking-drum character)
-static constexpr float S_NOISE_LEVEL_SCALE = 0.45f; // stronger transient burst
+static constexpr float S_FM_INDEX_SCALE = 0.0f; // disable FM content to remove metallic clatter
+// noise transient scale — tuned down to remove iron/clatter artifacts
+static constexpr float S_NOISE_LEVEL_SCALE = 0.22f; // quieter, filtered transient
 
 float minFreq = S_MIN_FREQ;
 float maxFreq = S_MAX_FREQ;
@@ -412,14 +414,17 @@ void triggerDrum(uint16_t peakC, float flex, uint16_t fsr)
   float nAmp = noiseAmpFromVelocity(velN);
   // Keep noise amplitude intact but scale down globally to reduce metallic harshness
   noise1.amplitude(nAmp * S_NOISE_LEVEL_SCALE);
-
-  // Noise transient: keep as short burst, scaled by FSR for release only
-  noiseEnv.attack(0);
+  // Noise transient: keep as short burst, give tiny attack to avoid impulse HF click
+  noiseEnv.attack(2);
   int noiseDecay = 12;
   int noiseRelease = (int)max(8.0f, 60.0f * (1.0f - fsrN));
   noiseEnv.decay(noiseDecay);
   noiseEnv.sustain(0);
   noiseEnv.release(noiseRelease);
+  // Per-hit noise lowpass to remove metallic high-frequency content
+  float noiseCut = noteFreq * 6.0f; // center higher than body
+  noiseCut = constrain(noiseCut, 1200.0f, 5000.0f);
+  noiseFilter.frequency(noiseCut);
   noiseEnv.noteOn();
 }
 
@@ -509,6 +514,10 @@ void setup()
     analogReadAveraging(1);
 
     smoothedFlex = analogReadFast(FLEX_PIN);
+
+    // initialize noise filter to a conservative lowpass to reduce HF clatter
+    noiseFilter.frequency(2500.0f); // 2.5 kHz default
+    noiseFilter.resonance(0.6f);
 
     // Create PlayTask
     BaseType_t res = xTaskCreate(
