@@ -19,7 +19,7 @@
 #define FSR_PIN A0
 
 // ------------------- CONFIG -------------------
-#define PIEZO_THRESHOLD 150
+#define PIEZO_THRESHOLD 200
 #define PIEZO_DEBOUNCE_MS 1
 
 #define FLEX_MIN 30
