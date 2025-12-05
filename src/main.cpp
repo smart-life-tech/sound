@@ -87,8 +87,9 @@ static constexpr float S_MAX_FREQ = 1000.0f;  // allow full high range if flex r
 static constexpr int S_FM_DROP_MS = 80;       // longer pitch drop to reduce metallic harshness
 static constexpr int S_KS_SUSTAIN_MS = 400;   // longer sustain to match original tail
 // scale down analyzer's aggressive FM/index and noise suggestions to avoid metallic harshness
-static constexpr float S_FM_INDEX_SCALE = 0.08f; // scale applied to fm index
-static constexpr float S_NOISE_LEVEL_SCALE = 0.25f; // scale applied to noise amplitude
+// Reduce FM/noise aggressively to avoid metallic timbre
+static constexpr float S_FM_INDEX_SCALE = 0.03f; // scale applied to fm index (very small)
+static constexpr float S_NOISE_LEVEL_SCALE = 0.12f; // scale applied to noise amplitude (quieter)
 
 float minFreq = S_MIN_FREQ;
 float maxFreq = S_MAX_FREQ;
@@ -204,20 +205,17 @@ void setKSDamping(uint16_t fsr, float velNorm)
 {
   // map FSR (0..1024) → cutoff for bass and damping
   float fsrN = (float)fsr / 1024.0f;
-
-  float cutoff = 100.0f - fsrN * 50.0f; // much lower base cutoff for maximum bass
-  float brightness = velNorm * 100.0f;  // reduced brightness addition
-
-  float finalCutoff = cutoff + brightness;
-  if (finalCutoff < 100.0f)
-    finalCutoff = 100.0f;
-  if (finalCutoff > 1000.0f)
-    finalCutoff = 1000.0f;
-
+  // More conservative cutoff and resonance mapping to avoid metallic peaks
+  // Base cutoff in low-mid range, add gentle brightness from velocity
+  float baseCutoff = 150.0f;
+  float brightness = velNorm * 200.0f; // up to +200 Hz from velocity
+  float finalCutoff = baseCutoff + brightness - fsrN * 80.0f; // pressing lowers cutoff
+  finalCutoff = constrain(finalCutoff, 120.0f, 600.0f);
   ksFilter.frequency(finalCutoff);
 
-  // resonance Q controls decay speed: higher FSR = more damping (less resonance, shorter decay)
-  float q = 4.0f - fsrN * 3.5f; // higher FSR = lower Q for shorter decay
+  // Use mild resonance values (1.5..0.2) to keep body warm and avoid metallic ringing
+  float q = 1.5f - fsrN * 1.3f; // higher FSR -> slightly lower Q
+  q = clampf(q, 0.2f, 1.5f);
   ksFilter.resonance(q);
 }
 
@@ -491,9 +489,9 @@ void setup()
     audioShield.enable();
     audioShield.volume(1.0f);
 
-    mixer.gain(0, 0.0f); // FM eliminated for no metallic
-    mixer.gain(1, 2.5f); // KS gain increased to compensate for low volume from deep bass filter
-    mixer.gain(2, 0.0f); // Noise eliminated to remove any metallic transient
+    mixer.gain(0, 0.0f); // FM muted at mixer
+    mixer.gain(1, 1.4f); // KS gain lowered to avoid over-bright/over-driven body
+    mixer.gain(2, 0.0f); // Noise muted at mixer to keep transient subtle
     mixer.gain(3, 0.0f); // unused
 
     analogReadResolution(ANALOG_RESOLUTION_BITS);
