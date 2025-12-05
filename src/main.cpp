@@ -1,68 +1,48 @@
-// main.cpp
-// Teensy 4.1 FM Physical Drum + PCM5102 I2S Output
-// With FULL SERIAL DEBUG of all sensor inputs and event triggers
-
 #include <Arduino.h>
 #include <Audio.h>
 #include <math.h>
 
-// ----------------------------- Sensor Pins -----------------------------
-#define PIEZO_PIN A2
-#define FLEX_PIN  A1
-#define FSR_PIN   A0
+// ---------------------------------------------------------------------------
+// 1) CLASS DEFINITION MUST COME FIRST
+// ---------------------------------------------------------------------------
 
-#define PIEZO_THRESHOLD      250
-#define PIEZO_DEBOUNCE_MS     40
-#define FLEX_SMOOTH_ALPHA   0.20f
-
-// -----------------------------------------------------------------------
-//  AUDIO CLASS (FM DRUM)
-// -----------------------------------------------------------------------
 class AudioSynthGanGan : public AudioStream {
 public:
     AudioSynthGanGan() : AudioStream(0, NULL)
     {
-        // Exciter defaults
-        aStartFreq = 600.0f;
-        aStopFreq  = 6.0f;
-        aStartAmp  = 1.0f;
-        aStopAmp   = 0.2f;
-        aDuration  = 0.21f;
-        aKnee      = 1;
+        aStartFreq = 2.0f;
+        aStopFreq  = 40.0f;
+        aStartAmp  = 0.1f;
+        aStopAmp   = 1.0f;
+        aDuration  = 0.20f;
+        aKnee      = 0;
 
-        // Resonator defaults
-        bFreq      = 46.0f;
-        bSubFreq   = 71.0f;
+        bFreq      = 220.0f;
+        bSubFreq   = 36.0f;
         bAmp       = 1.0f;
-        bSubStd    = 0.20f;
+        bSubStd    = 0.05f;
 
-        // Envelope
-        envDurBase = 0.62f;
-        envDur     = envDurBase;
+        envDur     = 0.35f;
         envAttack  = 0.001f;
-        outputGain = 0.40f;
+        outputGain = 0.4f;
 
-        // Internal
-        phaseA = phaseB = phaseSub = 0;
+        phaseA = phaseB = phaseSub = 0.0f;
         sweepT = 1.0f;
         envT   = 1.0f;
+
         active = false;
 
         sampleRate = AUDIO_SAMPLE_RATE_EXACT;
         twoPI = 2.0f * (float)M_PI;
-
-        // Anti-metallic scaling
-        fmDepthScale      = 0.65f;
-        sweepSpreadScale  = 0.60f;
     }
 
-    // =============== PER-SAMPLE SYNTH ===============
-    virtual void update(void) override
+    // The per-sample generator
+    virtual void update(void)
     {
         audio_block_t *block = allocate();
         if (!block) return;
 
-        float invSR = 1.0f / sampleRate;
+        const float invSR = 1.0f / sampleRate;
 
         for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
         {
@@ -70,25 +50,20 @@ public:
 
             if (active)
             {
-                // Sweep progress 0–1
                 sweepT += 1.0f / (aDuration * sampleRate);
                 if (sweepT > 1.0f) sweepT = 1.0f;
 
-                // Knee curve
                 float k = sweepT;
                 if (aKnee == 1) k = sweepT * sweepT;
                 else if (aKnee == 2) k = sqrtf(sweepT);
 
-                // Exciter FM
-                float fA = aStartFreq + (aStopFreq - aStartFreq) * (k * sweepSpreadScale);
-                float aA = aStartAmp  + (aStopAmp  - aStartAmp) * k;
+                float fA = aStartFreq + (aStopFreq - aStartFreq) * k;
+                float aA = aStartAmp  + (aStopAmp  - aStartAmp ) * k;
 
-                // Modulator
                 phaseA += fA * invSR;
                 if (phaseA >= 1.0f) phaseA -= floorf(phaseA);
-                float modA = sinf(twoPI * phaseA) * (aA * fmDepthScale);
+                float modA = sinf(twoPI * phaseA) * aA;
 
-                // Resonator
                 phaseB += bFreq * invSR;
                 if (phaseB >= 1.0f) phaseB -= floorf(phaseB);
 
@@ -96,9 +71,8 @@ public:
                 if (phaseSub >= 1.0f) phaseSub -= floorf(phaseSub);
 
                 float jitter = sinf(twoPI * phaseSub) * bSubStd;
-                float toneB  = sinf(twoPI * phaseB) * (bAmp + jitter);
+                float toneB = sinf(twoPI * phaseB) * (bAmp + jitter);
 
-                // Envelope
                 envT += invSR;
                 float envNorm = envT / envDur;
                 if (envNorm >= 1.0f) envNorm = 1.0f;
@@ -106,9 +80,9 @@ public:
                 float env;
                 float atkNorm = envAttack / envDur;
 
-                if (envNorm < atkNorm)
+                if (envNorm < atkNorm) {
                     env = envNorm / atkNorm;
-                else {
+                } else {
                     float t = (envNorm - atkNorm) / (1.0f - atkNorm);
                     env = expf(-5.0f * t);
                 }
@@ -119,7 +93,6 @@ public:
                     active = false;
             }
 
-            // Final clipping
             if (out > 1.0f) out = 1.0f;
             if (out < -1.0f) out = -1.0f;
 
@@ -131,143 +104,80 @@ public:
     }
 
     // Parameter setters
-    void setBFreq(float v){ bFreq = v; }
-    void setEnvDur(float v){ envDur = max(0.02f, v); }
-    void setOutputGain(float v){ outputGain = v; }
+    void setAStartFreq(float v) { aStartFreq = v; }
+    void setAStopFreq(float v)  { aStopFreq = v; }
+    void setAStartAmp(float v)  { aStartAmp = v; }
+    void setAStopAmp(float v)   { aStopAmp = v; }
+    void setADuration(float v)  { aDuration = v; }
+    void setAKnee(uint8_t v)    { aKnee = v; }
+
+    void setBFreq(float v)     { bFreq = v; }
+    void setBSubFreq(float v)  { bSubFreq = v; }
+    void setBAmp(float v)      { bAmp = v; }
+    void setBSubStd(float v)   { bSubStd = v; }
+
+    void setEnvDur(float v)     { envDur = v; }
+    void setOutputGain(float v) { outputGain = v; }
 
     void noteOn()
     {
         sweepT = 0.0f;
         envT   = 0.0f;
-        phaseB += random(0,100)*1e-5f;
         active = true;
-
-        Serial.println(">>> noteOn() fired!");
     }
-
-    bool isActive() const { return active; }
-
-    float envDurBase;
 
 private:
-    // Parameters
     float aStartFreq, aStopFreq, aStartAmp, aStopAmp, aDuration;
     uint8_t aKnee;
-
     float bFreq, bSubFreq, bAmp, bSubStd;
-
     float envDur, envAttack, outputGain;
 
-    // State
     float phaseA, phaseB, phaseSub;
-    float sweepT, envT;
+    float sweepT;
+    float envT;
     bool active;
 
-    float sampleRate, twoPI;
-
-    float fmDepthScale;
-    float sweepSpreadScale;
+    float sampleRate;
+    float twoPI;
 };
 
-// -----------------------------------------------------------------------
-//  AUDIO PIPELINE
-// -----------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// 2) GLOBAL AUDIO OBJECTS (OK now because class exists above)
+// ---------------------------------------------------------------------------
+
 AudioSynthGanGan ganGan;
-AudioFilterBiquad hpDC;
-AudioFilterStateVariable svf;
-AudioOutputI2S i2sOut;
+AudioOutputI2S   i2sOut;
+AudioConnection  patchCord1(ganGan, 0, i2sOut, 0);
+AudioConnection  patchCord2(ganGan, 0, i2sOut, 1);
 
-AudioConnection p1(ganGan, 0, hpDC, 0);
-AudioConnection p2(hpDC, 0, svf, 0);
-AudioConnection p3(svf, 0, i2sOut, 0);
-AudioConnection p4(svf, 0, i2sOut, 1);
+// ---------------------------------------------------------------------------
+// 3) SETUP
+// ---------------------------------------------------------------------------
 
-// -----------------------------------------------------------------------
-//  GLOBALS
-// -----------------------------------------------------------------------
-float smoothedFlex = 0.0f;
-uint32_t lastHitMs = 0;
-
-// -----------------------------------------------------------------------
-//  SETUP
-// -----------------------------------------------------------------------
 void setup()
 {
-    Serial.begin(115200);
-    delay(800);
-    Serial.println("\n=== GAN-GAN FM DRUM START ===");
+    AudioMemory(12);
 
-    AudioMemory(14);
+    ganGan.setBFreq(46.0f);
+    ganGan.setEnvDur(0.62f);
 
-    hpDC.setHighpass(40.0f, 0.7f);
-    svf.frequency(1200);   
-    svf.resonance(0.8f);
-
-    smoothedFlex = analogRead(FLEX_PIN);
+    ganGan.setAStartFreq(600.0f);
+    ganGan.setAStopFreq(6.0f);
+    ganGan.setAStartAmp(1.0f);
+    ganGan.setAStopAmp(0.2f);
+    ganGan.setADuration(0.21f);
+    ganGan.setAKnee(1);
 }
 
-// -----------------------------------------------------------------------
-//  LOOP — FULL SENSOR DEBUG
-// -----------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// 4) LOOP
+// ---------------------------------------------------------------------------
+
 void loop()
 {
-    uint16_t piezo = analogRead(PIEZO_PIN);
-    uint16_t fsr   = analogRead(FSR_PIN);
-    uint16_t flex  = analogRead(FLEX_PIN);
-
-    uint32_t now = millis();
-
-    // ---------------- Piezo hit debug ----------------
-    Serial.print("Piezo=");
-    Serial.print(piezo);
-    Serial.print("  Hit? ");
-
-    if (piezo > PIEZO_THRESHOLD && (now - lastHitMs) > PIEZO_DEBOUNCE_MS)
-    {
-        Serial.print("YES  ");
+    static uint32_t next = 0;
+    if (millis() > next) {
         ganGan.noteOn();
-        lastHitMs = now;
+        next = millis() + 600;
     }
-    else
-        Serial.print("no   ");
-
-
-    // ---------------- Flex debug ----------------
-    smoothedFlex = smoothedFlex*(1.0f-FLEX_SMOOTH_ALPHA) + FLEX_SMOOTH_ALPHA*flex;
-
-    float cutoff = map(smoothedFlex, 200, 3800, 300, 12000);
-    cutoff = constrain(cutoff, 300, 12000);
-    svf.frequency(cutoff);
-
-    Serial.print("  Flex(raw)=");
-    Serial.print(flex);
-    Serial.print(" smoothed=");
-    Serial.print(smoothedFlex);
-    Serial.print(" cutoff=");
-    Serial.print(cutoff);
-
-
-    // ---------------- FSR debug ----------------
-    float fsrNorm = (float)constrain(fsr, 0, 4095) / 4095.0f;
-
-    float gain = 0.25f + fsrNorm * 0.75f;
-    ganGan.setOutputGain(gain * 0.4f);
-
-    Serial.print("  FSR=");
-    Serial.print(fsr);
-    Serial.print(" gain=");
-    Serial.print(gain);
-
-
-    // ---------------- Env duration debug ----------------
-    float newDur = ganGan.envDurBase * (1.0f - fsrNorm*0.4f);
-    newDur = constrain(newDur, 0.05f, 1.5f);
-    ganGan.setEnvDur(newDur);
-
-    Serial.print("  envDur=");
-    Serial.print(newDur);
-
-    Serial.println();
-
-    delay(20);
 }
