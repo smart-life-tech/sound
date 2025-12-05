@@ -1,153 +1,217 @@
-/*
-   Teensy 4.x PLAYBACK WITH REAL-TIME SENSOR MODULATION
-   - Primary: AudioPlayMemory plays drum_raw (authentic sample)
-   - Modulation: 
-     * Flex sensor (A1) → Filter cutoff (brightness)
-     * FSR sensor (A0) → Playback volume (sustain shortening)
-     * Piezo sensor (A2) → Trigger playback on hit
-   - Result: Original audio fidelity + expressive sensor control
-*/
+// GanGanTeensyPCM5102.ino
+// Teensy 4.1 + Audio Library + PCM5102 (I2S) output
+// Single-voice GAN-GAN FM drum synth as an AudioStream node
+// Author: (adapted for you)
 
 #include <Arduino.h>
 #include <Audio.h>
 #include <math.h>
 
-#include "drum_raw.h" // AudioPlayMemory-compatible header
+// Audio system objects (create globally)
+AudioSynthGanGan    ganGan;          // custom synth (class defined below)
+AudioOutputI2S      i2sOut;          // I2S output (connect to PCM5102)
+AudioConnection     patch1(ganGan, 0, i2sOut, 0);
+AudioConnection     patch2(ganGan, 0, i2sOut, 1);
 
-#define analogReadFast(pin) analogRead(pin)
+// ------------------------------
+// AudioSynthGanGan class
+// ------------------------------
+class AudioSynthGanGan : public AudioStream {
+public:
+    AudioSynthGanGan() : AudioStream(0, NULL) {
+        // Default parameters (matches your SC defaults)
+        aStartFreq = 2.0f;
+        aStopFreq  = 40.0f;
+        aStartAmp  = 0.1f;
+        aStopAmp   = 1.0f;
+        aDuration  = 0.20f;
+        aKnee      = 0; // 0=linear,1=expIn,2=expOut
 
-// ------------------- PINS -------------------
-#define PIEZO_CENTER_PIN A2
-#define FLEX_PIN A1
-#define FSR_PIN A0
+        bFreq      = 220.0f;
+        bSubFreq   = 36.0f;
+        bAmp       = 1.0f;
+        bSubStd    = 0.05f;
 
-// ------------------- CONFIG -------------------
-#define PIEZO_THRESHOLD 250
-#define PIEZO_DEBOUNCE_MS 50
+        envDur     = 0.35f;
+        envAttack  = 0.001f; // seconds (tiny)
+        outputGain = 0.4f;
 
-#define FLEX_MIN 250
-#define FLEX_MAX 3800
-#define FLEX_SMOOTH_ALPHA 0.24f
+        // internal state
+        phaseA = phaseB = phaseSub = 0.0f;
+        sweepT = 1.0f; // idle (1=done)
+        envT = 1.0f;
+        active = false;
 
-// =============== AUDIO OBJECTS ===============
-AudioPlayMemory playMem;
-AudioFilterStateVariable filter;
-AudioMixer4 mixer;
-AudioOutputI2S i2s1;
-AudioControlSGTL5000 audioShield;
-
-// Routing: playMem → filter → mixer → I2S out
-AudioConnection patchCord1(playMem, 0, filter, 0);
-AudioConnection patchCord2(filter, 0, mixer, 0);
-AudioConnection patchCord3(mixer, 0, i2s1, 0);
-AudioConnection patchCord4(mixer, 0, i2s1, 1);
-
-// =============== GLOBAL STATE ===============
-volatile uint16_t piezoCenterPeak = 0;
-volatile uint32_t lastHitMs = 0;
-volatile float smoothedFlex = 0.0f;
-volatile bool inPeakState = false;
-volatile uint16_t currentFSR = 0;
-// =============== ISR: PIEZO EDGE DETECTION & PLAYBACK TRIGGER ===============
-void piezoISR() {
-  uint32_t nowMs = millis();
-  uint16_t piezoRaw = analogReadFast(PIEZO_CENTER_PIN);
-  uint16_t fsrRaw = analogReadFast(FSR_PIN);
-  float flexRaw = analogReadFast(FLEX_PIN);
-  
-  // Update global state
-  piezoCenterPeak = piezoRaw;
-  currentFSR = fsrRaw;
-  
-  // Smooth Flex (exponential moving average)
-  smoothedFlex = (1.0f - FLEX_SMOOTH_ALPHA) * smoothedFlex + FLEX_SMOOTH_ALPHA * flexRaw;
-  
-  // Peak-tracking: only trigger on rising edge
-  bool crossedUp = (piezoRaw >= PIEZO_THRESHOLD) && !inPeakState;
-  
-  if (crossedUp) {
-    inPeakState = true;
-    
-    // Debounce
-    if (nowMs - lastHitMs >= PIEZO_DEBOUNCE_MS) {
-      lastHitMs = nowMs;
-      
-      // TRIGGER: Play drum sample if not already playing
-      if (!playMem.isPlaying()) {
-        playMem.play(drum_raw);
-        Serial.println("PLAY");
-      }
+        // sample rate constants
+        sampleRate = (float)AUDIO_SAMPLE_RATE_EXACT;
+        twoPI = 2.0f * M_PI;
+        resetIncrements();
     }
-  } else if (piezoRaw < (PIEZO_THRESHOLD / 2)) {
-    // Released
-    inPeakState = false;
-  }
-}
 
-// =============== SETUP ===============
+    // Required by AudioStream
+    virtual void update(void) override {
+        audio_block_t *block = allocate();
+        if (!block) return;
+
+        // Fill block
+        const float invSR = 1.0f / sampleRate;
+        for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++) {
+            float out = 0.0f;
+
+            if (active) {
+                // --- sweep normalized time 0..1 (exciter sweep) ---
+                sweepT += (1.0f / (aDuration * sampleRate));
+                if (sweepT > 1.0f) sweepT = 1.0f;
+
+                // knee curves
+                float k;
+                if (aKnee == 1) k = sweepT * sweepT;        // expIn
+                else if (aKnee == 2) k = sqrtf(sweepT);     // expOut
+                else k = sweepT;                            // linear
+
+                // modulator freq & amp
+                float fA = aStartFreq + (aStopFreq - aStartFreq) * k;
+                float aA = aStartAmp  + (aStopAmp  - aStartAmp ) * k;
+
+                // advance modulator phase (phase in [0,1))
+                phaseA += fA * invSR;
+                if (phaseA >= 1.0f) phaseA -= floorf(phaseA);
+
+                float modA = sinf(twoPI * phaseA) * aA;
+
+                // carrier + jitter
+                phaseB += bFreq * invSR;
+                if (phaseB >= 1.0f) phaseB -= floorf(phaseB);
+
+                phaseSub += bSubFreq * invSR;
+                if (phaseSub >= 1.0f) phaseSub -= floorf(phaseSub);
+
+                float jitter = sinf(twoPI * phaseSub) * bSubStd;
+                float toneB  = sinf(twoPI * phaseB) * (bAmp + jitter);
+
+                // envelope: normalized time envT, linear increment to envDur
+                envT += invSR;
+                float envNorm = envT / envDur;
+                if (envNorm >= 1.0f) envNorm = 1.0f;
+
+                // build percussive envelope: quick attack then exponential-ish decay
+                float env;
+                if (envNorm < envAttack / envDur) {
+                    env = envNorm / (envAttack / envDur);
+                } else {
+                    // scale remaining portion to 0..1 then exponential fall
+                    float t = (envNorm - (envAttack / envDur)) / (1.0f - (envAttack / envDur));
+                    env = expf(-5.0f * t); // -5 shapes decay; tweak if needed
+                }
+
+                // final sample
+                out = (1.0f + modA) * toneB * env * outputGain;
+
+                // deactivate when both sweep and envelope finished (sweepT==1 and envNorm==1)
+                if (sweepT >= 1.0f && envNorm >= 1.0f) {
+                    active = false; // note complete
+                }
+            } // active
+
+            // saturate to [-1,1]
+            if (out > 1.0f) out = 1.0f;
+            if (out < -1.0f) out = -1.0f;
+
+            // convert to 16-bit signed PCM (Audio library expects signed 16-bit in blocks)
+            block->data[i] = (int16_t)(out * 32767.0f);
+        }
+
+        transmit(block);
+        release(block);
+    }
+
+    // -------- control methods (exposed parameters) --------
+    // Exciter
+    void setAStartFreq(float v) { aStartFreq = v; resetIncrements(); }
+    void setAStopFreq(float v)  { aStopFreq  = v; resetIncrements(); }
+    void setAStartAmp(float v)  { aStartAmp  = v; }
+    void setAStopAmp(float v)   { aStopAmp   = v; }
+    void setADuration(float v)  { aDuration  = max(0.001f, v); resetIncrements(); }
+    void setAKnee(uint8_t k)    { aKnee = k; }
+
+    // Resonator
+    void setBFreq(float v)     { bFreq = v; }
+    void setBSubFreq(float v)  { bSubFreq = v; }
+    void setBAmp(float v)      { bAmp = v; }
+    void setBSubStd(float v)   { bSubStd = v; }
+
+    // Envelope / output
+    void setEnvDur(float v)    { envDur = max(0.005f, v); }
+    void setEnvAttack(float v) { envAttack = max(0.0f, v); }
+    void setOutputGain(float v) { outputGain = v; }
+
+    // trigger (like hitting the drum)
+    void noteOn() {
+        sweepT = 0.0f;   // start sweep
+        envT = 0.0f;     // start envelope time (seconds)
+        active = true;
+
+        // reset phases slightly to avoid identical repeated hits sounding identical
+        // small jitter randomization could be added if desired
+    }
+
+    // helper: is the voice currently active?
+    bool isActive() const { return active; }
+
+private:
+    // parameters (publicly adjustable via setters)
+    float aStartFreq, aStopFreq, aStartAmp, aStopAmp, aDuration;
+    uint8_t aKnee;
+
+    float bFreq, bSubFreq, bAmp, bSubStd;
+
+    float envDur, envAttack, outputGain;
+
+    // internal state
+    float phaseA, phaseB, phaseSub;
+    float sweepT;    // normalized sweep progress 0..1
+    float envT;      // envelope elapsed time (seconds)
+    bool active;
+
+    // sample-rate helpers
+    float sampleRate;
+    float twoPI;
+
+    void resetIncrements() {
+        // nothing heavy here for now — kept for extension (LUT, increments)
+        // reserved for future precomputation (optional)
+    }
+};
+
+// ------------------------------
+// Example usage in setup/loop
+// ------------------------------
 void setup() {
-  Serial.begin(115200);
-  delay(100);
-  Serial.println("\n=== Teensy 4.x PLAYBACK WITH SENSOR MODULATION ===");
-  
-  // Audio setup
-  AudioMemory(20);
-  audioShield.enable();
-  audioShield.volume(0.7);
-  
-  // Initialize filter (low-pass for tone control)
-  filter.frequency(4000);  // start neutral (bright)
-  filter.resonance(0.7);
-  filter.octaveControl(1.0);
-  
-  // Mixer setup
-  mixer.gain(0, 1.0);  // playback channel
-  mixer.gain(1, 0.0);  // unused
-  mixer.gain(2, 0.0);  // unused
-  mixer.gain(3, 0.0);  // unused
-  
-  // Sensor pins
-  pinMode(PIEZO_CENTER_PIN, INPUT);
-  pinMode(FLEX_PIN, INPUT);
-  pinMode(FSR_PIN, INPUT);
-  
-  // Init state
-  piezoCenterPeak = 0;
-  lastHitMs = 0;
-  smoothedFlex = 2500.0f;  // neutral Flex
-  currentFSR = 0;
-  inPeakState = false;
-  
-  Serial.println("Setup complete. Ready for hits!");
+    AudioMemory(12); // increase if you add more nodes
+
+    // set example parameters (tweak)
+    ganGan.setBFreq(46.0f);
+    ganGan.setEnvDur(0.62f);
+    ganGan.setBSubFreq(71.0f);
+    ganGan.setBSubStd(0.2f);
+
+    ganGan.setAStartFreq(600.0f);
+    ganGan.setAStopFreq(6.0f);
+    ganGan.setAStartAmp(1.0f);
+    ganGan.setAStopAmp(0.2f);
+    ganGan.setADuration(0.21f);
+    ganGan.setAKnee(1); // expIn
+
+    // stereo I2S output via i2sOut (patches already made above)
+    // If you use a codec/shield, configure it here. For PCM5102 nothing else needed.
 }
 
-// =============== MAIN LOOP: SENSOR POLLING & REAL-TIME MODULATION ===============
 void loop() {
-  // Poll sensors continuously
-  piezoISR();
-  
-  // 1. FLEX → Filter cutoff (brightness control)
-  // Map smoothed Flex [FLEX_MIN, FLEX_MAX] → cutoff [500Hz, 4000Hz]
-  float flexNorm = (smoothedFlex - FLEX_MIN) / (FLEX_MAX - FLEX_MIN);
-  flexNorm = constrain(flexNorm, 0.0f, 1.0f);
-  
-  // Expressive: low = dark (500 Hz), high = bright (4000 Hz)
-  float flexCutoff = 500.0f + (3500.0f * flexNorm);
-  filter.frequency(flexCutoff);
-  
-  // 2. FSR → Playback volume (sustain control)
-  // Map FSR [0, 1023] → gain [1.0, 0.0]
-  float fsrNorm = currentFSR / 1023.0f;
-  float playbackGain = 1.0f - fsrNorm;  // inverted: press FSR = lower volume
-  mixer.gain(0, playbackGain);
-  
-  // Debug output (500ms)
-  static uint32_t lastDebugMs = 0;
-  if (millis() - lastDebugMs >= 500) {
-    lastDebugMs = millis();
-    Serial.printf("Piezo: %4d | Flex: %4.0f (cut: %5.1f Hz) | FSR: %4d (gain: %.2f) | Playing: %d\n",
-                  piezoCenterPeak, smoothedFlex, flexCutoff, currentFSR, playbackGain, playMem.isPlaying());
-  }
-  
-  delay(2);
+    // simple demo: hit the drum every 600 ms
+    static uint32_t next = 0;
+    if (millis() > next) {
+        ganGan.noteOn();
+        next = millis() + 600;
+    }
+    // put other control code here (e.g., changing parameters live)
 }
