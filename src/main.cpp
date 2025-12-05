@@ -89,8 +89,8 @@ volatile bool inPeakState = false; // true when above threshold, false when belo
 
 // --- Synth tuning constants (from analyze.py recommendations, tuned for better match) ---
 // Talking-drum tuned defaults (midrange, warmer body)
-static constexpr float S_MIN_FREQ = 1200.0f;   // avoid overly deep guitar-like body
-static constexpr float S_MAX_FREQ = 4500.0f;   // cap upper range to talking-drum region
+static constexpr float S_MIN_FREQ = 10f;   // avoid overly deep guitar-like body
+static constexpr float S_MAX_FREQ = 4.0f;   // cap upper range to talking-drum region
 static constexpr int S_FM_DROP_MS = 80;       // pitch drop time (ms)
 static constexpr int S_KS_SUSTAIN_MS = 220;   // default sustain (ms) for talking-drum feel
 // scale down analyzer's aggressive FM/index and noise suggestions to avoid metallic harshness
