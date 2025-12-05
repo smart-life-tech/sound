@@ -83,6 +83,10 @@ volatile uint16_t piezoCenterPeak = 0;
 volatile uint32_t lastHitMs = 0;
 volatile float smoothedFlex = 0.0f;
 bool test = true;
+
+// Peak-tracking state for ISR: prevent double-hit on release
+volatile bool inPeakState = false; // true when above threshold, false when below
+
 // --- Synth tuning constants (from analyze.py recommendations, tuned for better match) ---
 // Talking-drum tuned defaults (midrange, warmer body)
 static constexpr float S_MIN_FREQ = 120.0f;   // avoid overly deep guitar-like body
@@ -270,14 +274,17 @@ void piezoISR()
     piezoCenterPeak = c;
 
   uint32_t now = millis();
-  if ((c > PIEZO_THRESHOLD) &&
-      (now - lastHitMs > PIEZO_DEBOUNCE_MS))
+  
+  // Peak-tracking: only trigger on rising edge (transition from idle below threshold to above)
+  bool aboveThreshold = (c > PIEZO_THRESHOLD);
+  
+  if (aboveThreshold && !inPeakState && (now - lastHitMs > PIEZO_DEBOUNCE_MS))
   {
+    // Rising edge detected: transition from below to above threshold
+    inPeakState = true;
     lastHitMs = now;
-    // BaseType_t hpw = pdFALSE;
-    //  vTaskNotifyGiveFromISR(PlayTaskHandle, &hpw);
-    //  portYIELD_FROM_ISR(hpw);
-    //   Snapshot sensor state (center-only)
+    
+    // Snapshot sensor state (center-only)
     uint16_t peakC;
     float flexLocal;
     noInterrupts();
@@ -297,27 +304,20 @@ void piezoISR()
     digitalToggleFast(13);
     triggerDrum(peakC, flexLocal, fsr);
   }
+  else if (!aboveThreshold)
+  {
+    // Falling edge: return to idle state
+    inPeakState = false;
+  }
 
-  // Flex smoothing (runs at 5kHz)
+  // Flex smoothing (runs at ISR rate)
   float flexRaw = analogReadFast(FLEX_PIN);
-  // Serial.print(" Flex Raw:");
-  // Serial.println(flexRaw);
   smoothedFlex += FLEX_SMOOTH_ALPHA * (flexRaw - smoothedFlex);
   sensorC = c;
   float fsr = analogReadFast(FSR_PIN);
   sensorFSR = fsr;
   // keep a snapshot for the print task
   sensorFlex = smoothedFlex;
-
-  // Serial.print("C:");
-  // Serial.print(c);
-  // Serial.print(" R:");
-  // Serial.print(r);
-  // Serial.print(" Flex:");
-  // Serial.print(flexRaw);
-  // Serial.print(" FSR:");
-  // Serial.println(fsr);
-  // vTaskDelay(pdMS_TO_TICKS(200));
 }
 
 // ------------------- TRIGGER DRUM -------------------
