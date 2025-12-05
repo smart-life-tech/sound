@@ -201,7 +201,11 @@ void piezoISR()
       // TRIGGER: noteOn with velocity if not already active
       if (1)
       {
-        float velocity = (float)(piezoRaw - PIEZO_THRESHOLD) / (220.0f - PIEZO_THRESHOLD);
+        static float piezoSmooth = 0.0f;
+        const float PIEZO_ALPHA = 0.1f; // smaller = smoother
+        uint16_t piezoRaw = analogReadFast(PIEZO_CENTER_PIN);
+        piezoSmooth = (1.0f - PIEZO_ALPHA) * piezoSmooth + PIEZO_ALPHA * piezoRaw;
+        float velocity = (piezoSmooth - PIEZO_THRESHOLD) / (220.0f - PIEZO_THRESHOLD);
         velocity = constrain(velocity, 0.2f, 1.0f);
         ganGan.noteOn(velocity);
         Serial.printf(">>> GAN-GAN NOTEON velocity: %.2f <<<\n", velocity);
