@@ -28,7 +28,7 @@
 #define ANALOG_RES_BITS 12    // 0..4095
 #define ADC_MAX         4095
 
-#define PIEZO_THRESHOLD   220   // adjust to taste
+#define PIEZO_THRESHOLD   300   // adjust to taste
 #define PIEZO_DEBOUNCE_MS 10
 
 #define FLEX_SMOOTH_ALPHA 0.20f  // 0..1
