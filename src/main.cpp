@@ -142,7 +142,7 @@ void loop(){
     ganGan.setBFreq(carrierFreq);
 
     // --- FSR → gain & envDur ---
-    float fsrNorm = constrain((float)fsr/4095.0f,0.0f,1.0f);
+    float fsrNorm = constrain((float)fsr/1023.0f,0.0f,1.0f);
     float gain = OUTPUT_GAIN_MIN + fsrNorm*(OUTPUT_GAIN_MAX-OUTPUT_GAIN_MIN);
     ganGan.setOutputGain(gain);
     float envDur = ganGan.envDurBase*(0.6f + 0.4f*(1.0f-fsrNorm));
