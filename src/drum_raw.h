@@ -5,7 +5,10 @@
 #include <Arduino.h>
 
 const unsigned int drum_raw_len = 6526;
+// Header word: format (0x81 = 16-bit PCM @ 44100 Hz) in high byte, length (words) in low 24 bits
+// computed as (0x81 << 24) | drum_raw_len
 const unsigned int drum_raw[] PROGMEM = {
+  2164267390u,
   436,
   665,
   1035,
