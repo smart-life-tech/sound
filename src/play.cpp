@@ -174,54 +174,66 @@ volatile uint16_t currentFSR = 0;
 // =============== ISR: PIEZO EDGE DETECTION & GANGAN TRIGGER ===============
 void piezoISR()
 {
-  uint32_t nowMs = millis();
-  uint16_t piezoRaw = analogReadFast(PIEZO_CENTER_PIN);
-  uint16_t fsrRaw = analogReadFast(FSR_PIN);
-  float flexRaw = analogReadFast(FLEX_PIN);
+    uint32_t now = millis();
+    uint16_t piezoRaw = analogReadFast(PIEZO_CENTER_PIN);
+    uint16_t fsrRaw   = analogReadFast(FSR_PIN);
+    float    flexRaw  = analogReadFast(FLEX_PIN);
 
-  // Update global state
-  piezoCenterPeak = piezoRaw;
-  currentFSR = fsrRaw;
+    // Update shared state
+    piezoCenterPeak = piezoRaw;
+    currentFSR      = fsrRaw;
 
-  // Smooth Flex (exponential moving average)
-  smoothedFlex = (1.0f - FLEX_SMOOTH_ALPHA) * smoothedFlex + FLEX_SMOOTH_ALPHA * flexRaw;
+    // FLEX smoothing
+    smoothedFlex = (1.0f - FLEX_SMOOTH_ALPHA) * smoothedFlex + FLEX_SMOOTH_ALPHA * flexRaw;
 
-  // Peak-tracking: only trigger on rising edge
-  bool crossedUp = (piezoRaw >= PIEZO_THRESHOLD) && !inPeakState;
+    // ----------------------------------------------------------------------
+    // NEW: PROPER DRUM TRIGGER LOGIC
+    // ----------------------------------------------------------------------
 
-  if (crossedUp)
-  {
-    inPeakState = true;
+    static bool armed = true;
+    static uint32_t lastHitTime = 0;
 
-    // Debounce
-    if (nowMs - lastHitMs >= PIEZO_DEBOUNCE_MS)
-    {
-      lastHitMs = nowMs;
+    const int LOWER_RESET = PIEZO_THRESHOLD * 0.3f; // quiet zone
+    const int LOCKOUT_MS  = 40;                     // ignore bounce/release
 
-      // TRIGGER: noteOn with velocity if not already active
-      if (1)
-      {
-        static float piezoSmooth = 0.0f;
-        const float PIEZO_ALPHA = 0.1f; // smaller = smoother
-        uint16_t piezoRaw = analogReadFast(PIEZO_CENTER_PIN);
-        piezoSmooth = (1.0f - PIEZO_ALPHA) * piezoSmooth + PIEZO_ALPHA * piezoRaw;
-        float velocity = (piezoSmooth - PIEZO_THRESHOLD) / (220.0f - PIEZO_THRESHOLD);
-        velocity = constrain(velocity, 0.2f, 1.0f);
-        ganGan.noteOn(velocity);
-        Serial.printf(">>> GAN-GAN NOTEON velocity: %.2f <<<\n", velocity);
-        Serial.print("piezzo raw: ");
-        Serial.print(piezoRaw);
-        // Serial.printf("Piezo: %4d | Flex: %4.0f (freq: %6.1f Hz) | FSR: %4d (fade: %.2fs) | Active: %d\n",
-        //               piezoCenterPeak, smoothedFlex, flexFreq, currentFSR, fadeTime, ganGan.isActive());
-      }
+    // 1. Lockout after hit (prevents bounce and release retriggers)
+    if (now - lastHitTime < LOCKOUT_MS) {
+        armed = false;
     }
-  }
-  else if (piezoRaw < (PIEZO_THRESHOLD / 2))
-  {
-    // Released
-    inPeakState = false;
-  }
+
+    // 2. Re-arm only when piezo is fully quiet (below lower threshold)
+    if (!armed) {
+        if (piezoRaw < LOWER_RESET) {
+            armed = true;
+        } else {
+            return; // still not quiet → ignore noise
+        }
+    }
+
+    // 3. Detect valid rising hit
+    if (armed && piezoRaw >= PIEZO_THRESHOLD) {
+
+        lastHitTime = now;
+        armed = false;
+
+        // Velocity smoothing
+        static float piezoSmooth = 0.0f;
+        const float PIEZO_ALPHA = 0.1f;
+
+        piezoSmooth = (1.0f - PIEZO_ALPHA) * piezoSmooth + PIEZO_ALPHA * piezoRaw;
+
+        float velocity = (piezoSmooth - PIEZO_THRESHOLD) / (700.0f - PIEZO_THRESHOLD);
+        velocity = constrain(velocity, 0.25f, 1.0f);
+
+        ganGan.noteOn(velocity);
+        delayMicroseconds(30); // debounce
+        Serial.printf(">>> HIT   vel: %.2f   piezo: %d\n", velocity, piezoRaw);
+        return;
+    }
+
+    // no hit, no action
 }
+
 
 // =============== SETUP ===============
 void setup()
