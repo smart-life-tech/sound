@@ -1,6 +1,6 @@
 {
-  "minF": 45.0,
-  "maxF": 198.57389228659844,
+  "minF": 47.5,
+  "maxF": 189.11799265390326,
   "medianF": 86.00563826612898,
   "startF": 189.11799265390326,
   "endF": 82.45727325120501,
@@ -10,7 +10,15 @@
   "transient_rms": 0.30249353031947784,
   "spectral_centroid_start": NaN,
   "hf_ratio_start": NaN,
-  "suggested_ks_sustain_ms": 50.0,
-  "suggested_fm_index": 60.0,
-  "suggested_noise_level": 1.0
+  "harmonic_ratio": NaN,
+  "damping_rate": 7640.324999999999,
+  "ks_resonance_q": 0.5,
+  "ks_filter_cutoff": 172.01127653225797,
+  "noise_color_bright": 0.5,
+  "suggested_ks_sustain_ms": 30.0,
+  "suggested_fm_index": 12.099741212779113,
+  "suggested_noise_level": 0.9074805909584336,
+  "suggested_fm_drop_ms": 9.287981859410431,
+  "suggested_ks_cutoff": 172.01127653225797,
+  "suggested_ks_q": 0.5
 }

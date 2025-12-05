@@ -84,13 +84,13 @@ volatile uint32_t lastHitMs = 0;
 volatile float smoothedFlex = 0.0f;
 volatile bool inPeakState = false; // peak-tracking for ISR
 
-// Synth tuning constants (from analyze.py: matched to original audio)
-static constexpr float S_MIN_FREQ = 45.0f;       // deeper body (original: 45 Hz min)
-static constexpr float S_MAX_FREQ = 198.6f;      // cap at original max (198.6 Hz)
-static constexpr int S_FM_DROP_MS = 11;          // short pitch drop (original: 11.6 ms)
-static constexpr int S_KS_SUSTAIN_MS = 50;       // very short sustain (original: 50 ms)
-static constexpr float S_FM_INDEX_SCALE = 0.60f; // enable FM for pitchy slap attack
-static constexpr float S_NOISE_LEVEL_SCALE = 1.0f; // stronger transient (original: 1.0)
+// Synth tuning constants (from analyze.py: precisely matched to original audio)
+static constexpr float S_MIN_FREQ = 47.5f;        // Hz (analyzed: 47.5 Hz min)
+static constexpr float S_MAX_FREQ = 189.1f;       // Hz (analyzed: 189.1 Hz max)
+static constexpr int S_FM_DROP_MS = 9;            // ms (analyzed: 9.3 ms pitch drop)
+static constexpr int S_KS_SUSTAIN_MS = 30;        // ms (analyzed: 30 ms sustain - VERY SHORT)
+static constexpr float S_FM_INDEX_SCALE = 12.10f; // FM strength (analyzed: 12.1 - strong attack)
+static constexpr float S_NOISE_LEVEL_SCALE = 0.91f; // noise level (analyzed: 0.91)
 
 float minFreq = S_MIN_FREQ;
 float maxFreq = S_MAX_FREQ;
@@ -142,16 +142,17 @@ float noiseAmpFromVelocity(float velNorm) {
 
 void setKSDamping(uint16_t fsr, float velNorm) {
   float fsrN = (float)fsr / 1024.0f;
-  // Expanded cutoff range for deeper, warmer body resonance
-  float baseCutoff = 200.0f;  // raised from 150 for more body
-  float brightness = velNorm * 150.0f;  // reduced from 200 for less harshness
-  float finalCutoff = baseCutoff + brightness - fsrN * 100.0f;  // increased FSR damping
-  finalCutoff = constrain(finalCutoff, 80.0f, 800.0f);  // expanded range (was 120-600)
+  // Analyzed KS filter: cutoff ~172 Hz base, resonance Q ~0.5 (warm, non-metallic)
+  // This creates a percussive drum body with minimal ringing
+  float baseCutoff = 172.0f;  // analyzed base from spectral centroid
+  float brightness = velNorm * 100.0f;  // gentle velocity brightness (not aggressive)
+  float finalCutoff = baseCutoff + brightness - fsrN * 80.0f;  // FSR darkens
+  finalCutoff = constrain(finalCutoff, 100.0f, 400.0f);  // narrow range to keep warm
   ksFilter.frequency(finalCutoff);
 
-  // Reduced resonance range to minimize metallic ringing
-  float q = 1.2f - fsrN * 0.9f;  // gentler Q mapping (was 1.5-1.3)
-  q = clampf(q, 0.3f, 1.2f);  // raised floor to 0.3 (was 0.2)
+  // Low resonance Q to match analyzed warmth and avoid metallic character
+  float q = 0.5f + fsrN * 0.3f;  // stays very low (0.5..0.8) - warm and punchy
+  q = clampf(q, 0.5f, 0.8f);
   ksFilter.resonance(q);
 }
 
@@ -262,9 +263,10 @@ void triggerDrum(uint16_t peakC, float flex, uint16_t fsr) {
   fmMod.frequency(baseFmFreq * 2.0f);
   fmMod.amplitude(fmIndex * S_FM_INDEX_SCALE);
 
-  float dropAmt = 1.0f + velN * 2.0f;
+  // FM pitch attack: analyzed to rise quickly, drop very fast (9ms)
+  float dropAmt = 1.0f + velN * 1.5f;  // more modest rise (1..2.5x)
   float startF = baseFmFreq * dropAmt;
-  uint32_t envDur = (uint32_t)S_FM_DROP_MS;
+  uint32_t envDur = (uint32_t)S_FM_DROP_MS;  // very fast drop (9 ms)
   startPitchEnv(startF, baseFmFreq, envDur);
 
   fmEnv.attack(1);
@@ -278,13 +280,14 @@ void triggerDrum(uint16_t peakC, float flex, uint16_t fsr) {
   float nAmp = noiseAmpFromVelocity(velN);
   noise1.amplitude(nAmp * S_NOISE_LEVEL_SCALE);
 
-  noiseEnv.attack(2);
-  noiseEnv.decay(12);
+  // Analyzed: attack 1.5ms, short transient burst with minimal decay
+  noiseEnv.attack(1);
+  noiseEnv.decay(8);
   noiseEnv.sustain(0);
   noiseEnv.release((int)max(8.0f, 60.0f * (1.0f - fsrN)));
 
-  float noiseCut = noteFreq * 6.0f;
-  noiseCut = constrain(noiseCut, 1200.0f, 5000.0f);
+  // Per-hit noise cutoff: analyzed at 1600 Hz for warm transient
+  float noiseCut = 1600.0f;  // fixed darker cutoff (not velocity-dependent)
   noiseFilter.frequency(noiseCut);
   noiseEnv.noteOn();
 }
@@ -307,19 +310,19 @@ void setup() {
 
   delay(50);
 
-  // Mixer gains: [0] playback, [1] KS, [2] noise, [3] FM
+  // Mixer gains based on analysis: percussive drum (short, punchy, not sustained)
   mixer.gain(0, 0.6f);  // playback (reference)
-  mixer.gain(1, 1.2f);  // KS body (increased for deeper presence)
-  mixer.gain(2, 1.0f);  // noise transient (stronger per analysis)
-  mixer.gain(3, 0.4f);  // FM enabled for pitchy attack
+  mixer.gain(1, 1.0f);  // KS body (moderate - analyzed as short decay)
+  mixer.gain(2, 0.9f);  // noise transient (analyzed: 0.91 level)
+  mixer.gain(3, 0.8f);  // FM attack (analyzed: 12.1 index = strong)
 
   analogReadResolution(ANALOG_RESOLUTION_BITS);
   analogReadAveraging(1);
   smoothedFlex = analogReadFast(FLEX_PIN);
 
-  // Noise filter: lowered to remove HF harshness and match original warmth
-  noiseFilter.frequency(1800.0f);  // lower cutoff for warmer transient
-  noiseFilter.resonance(0.5f);
+  // Noise filter: tuned for talking drum character (dark, punchy transient)
+  noiseFilter.frequency(1600.0f);  // darker noise (not bright metallic hiss)
+  noiseFilter.resonance(0.4f);     // minimal resonance in noise
 
   Serial.println("Ready. Hit the piezo or play drum_raw sample.");
 }
