@@ -20,7 +20,7 @@ from scipy.io import wavfile
 from scipy.signal import hilbert
 import matplotlib.pyplot as plt
 
-INPUT_WAV = "New drum nmo squeeze.wav"
+INPUT_WAV = "drum.wav"
 
 try:
     import librosa

@@ -84,13 +84,13 @@ volatile uint32_t lastHitMs = 0;
 volatile float smoothedFlex = 0.0f;
 volatile bool inPeakState = false; // peak-tracking for ISR
 
-// Synth tuning constants (modifiable for sound design)
-static constexpr float S_MIN_FREQ = 120.0f;
-static constexpr float S_MAX_FREQ = 450.0f;
-static constexpr int S_FM_DROP_MS = 80;
-static constexpr int S_KS_SUSTAIN_MS = 220;
-static constexpr float S_FM_INDEX_SCALE = 0.0f;
-static constexpr float S_NOISE_LEVEL_SCALE = 0.22f;
+// Synth tuning constants (from analyze.py: matched to original audio)
+static constexpr float S_MIN_FREQ = 45.0f;       // deeper body (original: 45 Hz min)
+static constexpr float S_MAX_FREQ = 198.6f;      // cap at original max (198.6 Hz)
+static constexpr int S_FM_DROP_MS = 11;          // short pitch drop (original: 11.6 ms)
+static constexpr int S_KS_SUSTAIN_MS = 50;       // very short sustain (original: 50 ms)
+static constexpr float S_FM_INDEX_SCALE = 0.60f; // enable FM for pitchy slap attack
+static constexpr float S_NOISE_LEVEL_SCALE = 1.0f; // stronger transient (original: 1.0)
 
 float minFreq = S_MIN_FREQ;
 float maxFreq = S_MAX_FREQ;
@@ -142,14 +142,16 @@ float noiseAmpFromVelocity(float velNorm) {
 
 void setKSDamping(uint16_t fsr, float velNorm) {
   float fsrN = (float)fsr / 1024.0f;
-  float baseCutoff = 150.0f;
-  float brightness = velNorm * 200.0f;
-  float finalCutoff = baseCutoff + brightness - fsrN * 80.0f;
-  finalCutoff = constrain(finalCutoff, 120.0f, 600.0f);
+  // Expanded cutoff range for deeper, warmer body resonance
+  float baseCutoff = 200.0f;  // raised from 150 for more body
+  float brightness = velNorm * 150.0f;  // reduced from 200 for less harshness
+  float finalCutoff = baseCutoff + brightness - fsrN * 100.0f;  // increased FSR damping
+  finalCutoff = constrain(finalCutoff, 80.0f, 800.0f);  // expanded range (was 120-600)
   ksFilter.frequency(finalCutoff);
 
-  float q = 1.5f - fsrN * 1.3f;
-  q = clampf(q, 0.2f, 1.5f);
+  // Reduced resonance range to minimize metallic ringing
+  float q = 1.2f - fsrN * 0.9f;  // gentler Q mapping (was 1.5-1.3)
+  q = clampf(q, 0.3f, 1.2f);  // raised floor to 0.3 (was 0.2)
   ksFilter.resonance(q);
 }
 
@@ -307,17 +309,17 @@ void setup() {
 
   // Mixer gains: [0] playback, [1] KS, [2] noise, [3] FM
   mixer.gain(0, 0.6f);  // playback (reference)
-  mixer.gain(1, gMixerKSGainDefault); // KS body
-  mixer.gain(2, 0.8f);  // noise transient
-  mixer.gain(3, 0.0f);  // FM muted
+  mixer.gain(1, 1.2f);  // KS body (increased for deeper presence)
+  mixer.gain(2, 1.0f);  // noise transient (stronger per analysis)
+  mixer.gain(3, 0.4f);  // FM enabled for pitchy attack
 
   analogReadResolution(ANALOG_RESOLUTION_BITS);
   analogReadAveraging(1);
   smoothedFlex = analogReadFast(FLEX_PIN);
 
-  // Noise filter
-  noiseFilter.frequency(2500.0f);
-  noiseFilter.resonance(0.6f);
+  // Noise filter: lowered to remove HF harshness and match original warmth
+  noiseFilter.frequency(1800.0f);  // lower cutoff for warmer transient
+  noiseFilter.resonance(0.5f);
 
   Serial.println("Ready. Hit the piezo or play drum_raw sample.");
 }
