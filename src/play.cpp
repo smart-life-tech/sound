@@ -201,10 +201,12 @@ void piezoISR()
       // TRIGGER: noteOn with velocity if not already active
       if (1)
       {
-        float velocity = (float)(piezoRaw - 150) / (800.0f - 150.0f);
+        float velocity = (float)(piezoRaw - 150) / (800.0f - 200.0f);
         velocity = constrain(velocity, 0.2f, 1.0f);
         ganGan.noteOn(velocity);
         Serial.printf(">>> GAN-GAN NOTEON velocity: %.2f <<<\n", velocity);
+        Serial.print("piezzo: ");
+        Serial.print(piezoRaw);
         // Serial.printf("Piezo: %4d | Flex: %4.0f (freq: %6.1f Hz) | FSR: %4d (fade: %.2fs) | Active: %d\n",
         //               piezoCenterPeak, smoothedFlex, flexFreq, currentFSR, fadeTime, ganGan.isActive());
       }
