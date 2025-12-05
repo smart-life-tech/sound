@@ -20,7 +20,7 @@
 
 // ------------------- CONFIG -------------------
 #define PIEZO_THRESHOLD 150
-#define PIEZO_DEBOUNCE_MS 50
+#define PIEZO_DEBOUNCE_MS 5
 
 #define FLEX_MIN 30
 #define FLEX_MAX 1023
@@ -46,6 +46,7 @@ public:
         envDur = envDurBase;
         envAttack = 0.001f;
         outputGain = 0.4f;
+        fadeTime = 0.5f;
 
         phaseA = phaseB = phaseSub = 0.0f;
         sweepT = 1.0f;
@@ -95,7 +96,9 @@ public:
                     float t = (envNorm - atkNorm) / (1.0f - atkNorm);
                     env = expf(-5.0f * t);
                 }
-                out = (1.0f + modA) * toneB * env * outputGain;
+                float decayRate = 1.0f / fadeTime;
+                float fadeFactor = expf(-decayRate * envT);
+                out = (1.0f + modA) * toneB * env * outputGain * fadeFactor;
                 if (sweepT >= 1.0f && envNorm >= 1.0f) active = false;
             }
             if (out > 1.0f) out = 1.0f;
@@ -109,10 +112,12 @@ public:
     void setBFreq(float v) { bFreq = v; }
     void setEnvDur(float v) { envDur = max(0.1f, v); }
     void setOutputGain(float v) { outputGain = constrain(v, 0.0f, 1.0f); }
-    void noteOn() {
+    void setFadeTime(float v) { fadeTime = max(0.01f, v); }
+    void noteOn(float velocity = 1.0f) {
         sweepT = 0.0f;
         envT = 0.0f;
         phaseB += random(0, 100) * 1e-5f;
+        outputGain = velocity;
         active = true;
     }
     bool isActive() const { return active; }
@@ -121,7 +126,7 @@ private:
     float aStartFreq, aStopFreq, aStartAmp, aStopAmp, aDuration;
     uint8_t aKnee;
     float bFreq, bSubFreq, bAmp, bSubStd;
-    float envDur, envAttack, outputGain;
+    float envDur, envAttack, outputGain, fadeTime;
     float phaseA, phaseB, phaseSub;
     float sweepT, envT;
     bool active;
@@ -172,10 +177,12 @@ void piezoISR() {
     if (nowMs - lastHitMs >= PIEZO_DEBOUNCE_MS) {
       lastHitMs = nowMs;
       
-      // TRIGGER: noteOn if not already active
+      // TRIGGER: noteOn with velocity if not already active
       if (!ganGan.isActive()) {
-        ganGan.noteOn();
-        Serial.println(">>> GAN-GAN NOTEON <<<");
+        float velocity = (float)(piezoRaw - 150) / (800.0f - 150.0f);
+        velocity = constrain(velocity, 0.2f, 1.0f);
+        ganGan.noteOn(velocity);
+        Serial.printf(">>> GAN-GAN NOTEON velocity: %.2f <<<\n", velocity);
       }
     }
   } else if (piezoRaw < (PIEZO_THRESHOLD / 2)) {
@@ -199,6 +206,7 @@ void setup() {
   ganGan.setBFreq(46.0f);        // base frequency (body)
   ganGan.setEnvDur(0.62f);       // envelope duration (s)
   ganGan.setOutputGain(0.4f);    // output gain
+  ganGan.setFadeTime(0.5f);      // default fade time (FSR will override)
   
   // Sensor pins
   pinMode(PIEZO_CENTER_PIN, INPUT);
@@ -231,18 +239,19 @@ void loop() {
   float flexFreq = 40.0f * powf(20.0f, flexNorm);  // 40 Hz @ flexNorm=0 to 800 Hz @ flexNorm=1
   ganGan.setBFreq(flexFreq);
   
-  // 2. FSR → GanGan Output Gain (volume control)
-  // Map FSR [0, 1023] → gain [0.4, 1.0]
+  // 2. FSR → Damping (controls fade-out time after hit)
+  // Map FSR [0, 1023] → fade time [0.1s, 2.0s]
+  // No pressure = quick decay (0.1s), hard squeeze = long sustain (2.0s)
   float fsrNorm = currentFSR / 1023.0f;
-  float outputGain = 0.4f + (0.6f * fsrNorm);  // FSR pressed = louder (sustain)
-  ganGan.setOutputGain(outputGain);
+  float fadeTime = 0.1f + (1.9f * fsrNorm);
+  ganGan.setFadeTime(fadeTime);
   
   // Debug output (500ms)
   static uint32_t lastDebugMs = 0;
   if (millis() - lastDebugMs >= 500) {
     lastDebugMs = millis();
-    Serial.printf("Piezo: %4d | Flex: %4.0f (freq: %6.1f Hz) | FSR: %4d (gain: %.2f) | Active: %d\n",
-                  piezoCenterPeak, smoothedFlex, flexFreq, currentFSR, outputGain, ganGan.isActive());
+    Serial.printf("Piezo: %4d | Flex: %4.0f (freq: %6.1f Hz) | FSR: %4d (fade: %.2fs) | Active: %d\n",
+                  piezoCenterPeak, smoothedFlex, flexFreq, currentFSR, fadeTime, ganGan.isActive());
   }
   
   delay(2);
