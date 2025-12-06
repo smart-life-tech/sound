@@ -223,7 +223,7 @@ void piezoISR()
         piezoSmooth = (1.0f - PIEZO_ALPHA) * piezoSmooth + PIEZO_ALPHA * piezoRaw;
 
         float velocity = (piezoSmooth - PIEZO_THRESHOLD) / (700.0f - PIEZO_THRESHOLD);
-        velocity = constrain(velocity, 0.25f, 1.0f);
+        velocity = constrain(velocity, 1.0f, 0.25f);
 
         ganGan.noteOn(velocity);
         delayMicroseconds(30); // debounce
