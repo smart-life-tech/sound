@@ -223,7 +223,7 @@ void piezoISR()
         piezoSmooth = (1.0f - PIEZO_ALPHA) * piezoSmooth + PIEZO_ALPHA * piezoRaw;
 
         float velocity = (piezoSmooth - PIEZO_THRESHOLD) / (700.0f - PIEZO_THRESHOLD);
-        velocity = constrain(velocity, 0.25f, 1.0f);
+        velocity = constrain(velocity, 0.75f, 1.0f);
 
         ganGan.noteOn(velocity);
         delayMicroseconds(30); // debounce
@@ -278,7 +278,7 @@ void loop()
   // 1. FLEX → GanGan Base Frequency (bFreq)
   // Map smoothed Flex [FLEX_MIN, FLEX_MAX] → frequency [70Hz, 250Hz]
   float flexNorm = (smoothedFlex - FLEX_MIN) / (FLEX_MAX - FLEX_MIN);
-  flexNorm = constrain(flexNorm, 0.0f, 1.0f);
+  flexNorm = constrain(flexNorm, 1.0f, 0.0f);
 
   // Linear mapping: low = 70 Hz, high = 250 Hz
   float flexFreq = 70.0f + (180.0f * flexNorm); // 70 Hz @ flexNorm=0 to 250 Hz @ flexNorm=1
