@@ -22,8 +22,8 @@
 #define PIEZO_THRESHOLD 200
 #define PIEZO_DEBOUNCE_MS 1
 
-#define FLEX_MIN 30
-#define FLEX_MAX 1023
+#define FLEX_MIN 0
+#define FLEX_MAX 0.8
 #define FLEX_SMOOTH_ALPHA 0.24f
 
 // =============== GANGAN SYNTH CLASS ===============
@@ -227,7 +227,7 @@ void piezoISR()
 
         ganGan.noteOn(velocity);
         delayMicroseconds(30); // debounce
-        Serial.printf(">>> HIT   vel: %.2f   piezo: %d\n", velocity, piezoRaw);
+        Serial.printf(">>> HIT   vel: %.2f   piezo: %d smoothflex %.2f \n", velocity, piezoRaw,smoothedFlex);
         return;
     }
 
@@ -276,13 +276,12 @@ void loop()
   piezoISR();
 
   // 1. FLEX → GanGan Base Frequency (bFreq)
-  // Map smoothed Flex [FLEX_MIN, FLEX_MAX] → frequency [40Hz, 800Hz]
+  // Map smoothed Flex [FLEX_MIN, FLEX_MAX] → frequency [70Hz, 250Hz]
   float flexNorm = (smoothedFlex - FLEX_MIN) / (FLEX_MAX - FLEX_MIN);
   flexNorm = constrain(flexNorm, 0.0f, 1.0f);
 
-  // Expressive: low = deep (40 Hz), high = soprano (800 Hz)
-  // Using exponential curve for musical pitch spacing
-  float flexFreq = 40.0f * powf(20.0f, flexNorm); // 40 Hz @ flexNorm=0 to 800 Hz @ flexNorm=1
+  // Linear mapping: low = 70 Hz, high = 250 Hz
+  float flexFreq = 70.0f + (180.0f * flexNorm); // 70 Hz @ flexNorm=0 to 250 Hz @ flexNorm=1
   ganGan.setBFreq(flexFreq);
 
   // 2. FSR → Damping (controls fade-out time after hit)
