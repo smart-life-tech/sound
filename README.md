@@ -98,3 +98,19 @@ This project is open-source. Refer to the repository's license file for details.
 ## Contributing
 
 Feel free to submit issues or pull requests for improvements.
+
+## Documentation Standards Package
+
+Structured technical documentation required for firmware continuity is available in `docs/`:
+
+- `docs/README.md`
+- `docs/FIRMWARE_ARCHITECTURE.md`
+- `docs/PIN_CONFIGURATION.md`
+- `docs/COMMUNICATION_PROTOCOLS.md`
+- `docs/HARDWARE_INTEGRATION_NOTES.md`
+- `docs/SETUP_AND_DEPLOYMENT.md`
+- `docs/DEBUGGING_AND_TROUBLESHOOTING.md`
+- `docs/BOM_ALIGNMENT.md`
+- `docs/FIRMWARE_VERSIONING_AND_RELEASES.md`
+
+Canonical build release log: `RELEASE_NOTES.md`
