@@ -5,7 +5,7 @@
 | Function | Symbol | MCU Pin | Type | Direction | Notes |
 |---|---|---|---|---|---|
 | Piezo trigger input | `PIEZO_CENTER_PIN` | `A2` | Analog ADC | Input | Hit detection and velocity estimation |
-| Magnetic reed pitch input | `REED_PITCH_PIN` | `A1` | Digital GPIO (`INPUT_PULLUP`) | Input | Selects synth base frequency (`bFreq`) |
+| Analog Hall pitch input | `HALL_PITCH_PIN` | `A1` | Analog ADC | Input | Modulates synth base frequency (`bFreq`) |
 | FSR sensor input | `FSR_PIN` | `A0` | Analog ADC | Input | Controls synth fade time (`fadeTime`) |
 | Audio output (I2S TX) | `i2s1` | Teensy I2S pins (board-defined) | Digital serial | Output | Routed to SGTL5000-based audio path |
 | USB serial debug | `Serial` | USB virtual COM | USB CDC | Bi-directional | Debug telemetry at 115200 baud |
@@ -16,9 +16,11 @@
 |---|---:|---|
 | `PIEZO_THRESHOLD` | `200` | Minimum ADC value to qualify as hit |
 | `PIEZO_DEBOUNCE_MS` | `1` | Debounce constant (legacy; lockout logic is primary) |
-| `REED_ACTIVE_STATE` | `LOW` | Active electrical state for reed closure |
-| `REED_OPEN_FREQ_HZ` | `70.0` | Base frequency used when reed is open |
-| `REED_CLOSED_FREQ_HZ` | `250.0` | Base frequency used when reed is closed |
+| `HALL_MIN_ADC` | `0.0` | Lower bound for Hall normalization |
+| `HALL_MAX_ADC` | `1023.0` | Upper bound for Hall normalization |
+| `HALL_SMOOTH_ALPHA` | `0.20` | Exponential smoothing coefficient for Hall input |
+| `HALL_FREQ_MIN_HZ` | `70.0` | Minimum mapped base frequency |
+| `HALL_FREQ_MAX_HZ` | `250.0` | Maximum mapped base frequency |
 
 ## 3. Ownership and Change Control
 
@@ -31,7 +33,7 @@
 
 ## 4. Validation Checklist (After Pin Changes)
 
-- Confirm reed state toggles correctly in Serial telemetry.
+- Confirm Hall ADC field changes smoothly in Serial telemetry.
 - Confirm piezo lockout/re-arm behavior does not cause retrigger or missed hits.
 - Confirm I2S output remains audible on both channels.
 - Confirm no pin conflicts with manufacturing harnesses.

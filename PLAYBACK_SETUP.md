@@ -14,7 +14,7 @@ This firmware reconfigures the drum instrument from **synthesis-driven** (FM+KS+
 | Sensor | Pin | Function | Mapping |
 |--------|-----|----------|---------|
 | **Piezo** | A2 | Trigger playback | Rising edge → play `drum_raw` |
-| **Magnetic reed** | A1 | Pitch/brightness state control | Open/closed state selects modulation target |
+| **Analog Hall** | A1 | Pitch/brightness modulation | ADC value maps to modulation target |
 | **FSR** | A0 | Sustain control | [0, 1023] → Playback volume [1.0, 0.0] (inverted) |
 
 ## Audio Chain
@@ -47,10 +47,10 @@ Piezo (trigger) → ISR → playMem.play(drum_raw)
 3. Subsequent hits debounced 50ms
 4. Only one playback active at a time (no overlapping)
 
-### Magnetic Reed Sensor (Pitch/Brightness State)
-- **Open state** → Low modulation state
-- **Closed state** → High modulation state
-- Deterministic switching with pull-up digital input
+### Analog Hall Sensor (Pitch/Brightness Modulation)
+- **Low field** → Low modulation state
+- **High field** → High modulation state
+- Continuous modulation using smoothed ADC input
 
 ### FSR Sensor (Sustain)
 - **Not pressed (FSR = 0)** → Full volume (gain = 1.0)
@@ -62,7 +62,7 @@ Piezo (trigger) → ISR → playMem.play(drum_raw)
 
 Serial output every 500ms:
 ```
-Piezo: 0345 | Reed: 1 (freq: 250.0 Hz) | FSR: 0123 (gain: 0.88) | Playing: 1
+Piezo: 0345 | Hall: 2450 (freq: 225.0 Hz) | FSR: 0123 (gain: 0.88) | Playing: 1
 ```
 
 Manual trigger commands:
@@ -79,14 +79,14 @@ Manual trigger commands:
 ## Expected Sound Characteristics
 
 ✓ **Authentic original audio timbre** (no metallic artifacts)
-✓ **Expressive control** (reed for pitch-state, FSR for muting)
+✓ **Expressive control** (Hall for pitch-state, FSR for muting)
 ✓ **Clean single hits** (peak-tracking prevents double-trigger)
 ✓ **Responsive** (real-time filter/volume modulation)
 
 ## Modification Points (if needed later)
 
 1. **Change playback sample**: Replace `drum_raw` reference in `piezoISR()`
-2. **Adjust reed modulation range**: Edit open/closed mapping constants in firmware
+2. **Adjust Hall modulation range**: Edit Hall ADC bounds and mapped frequency constants in firmware
 3. **Change FSR behavior**: Modify gain mapping (currently inverted volume)
 4. **Add velocity sensitivity**: Map `piezoCenterPeak` to playback speed/amplitude
 5. **Looping playback**: Uncomment auto-replay in main loop
@@ -95,7 +95,7 @@ Manual trigger commands:
 
 1. **Compile & upload** to Teensy 4.1
 2. **Test piezo hit** → Should hear original drum sample
-3. **Test reed sensor** → Tone/pitch state should switch reliably
+3. **Test Hall sensor** → Tone/pitch should move smoothly with field strength
 4. **Test FSR sensor** → Sound should fade/mute when pressed
 5. **Iterate modulation ranges** if behavior doesn't match expectations
 

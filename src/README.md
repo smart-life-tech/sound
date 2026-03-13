@@ -8,7 +8,7 @@ This project implements a hybrid drum synthesizer on the Teensy 4.x microcontrol
 - **Karplus-Strong Resonant Body**: Plucked string algorithm for sustained, resonant drum body tones.
 - **Noise Burst Transient**: White noise envelope for added texture and punch.
 - **Center vs Rim Detection**: Different note blocks and timbres based on hit location (center vs rim piezo sensors).
-- **Magnetic Reed Pitch Input**: Switches between two base-frequency targets for pitch variation.
+- **Analog Hall Pitch Input**: Continuously modulates base frequency for pitch variation.
 - **FSR Sensor Control**: Controls attenuation and decay of the Karplus-Strong body for dynamic damping.
 - **Real-Time Processing**: Uses FreeRTOS for task scheduling and an ISR for high-frequency sensor sampling (5 kHz).
 - **Audio Output**: Stereo output via I2S to the Teensy Audio Shield.
@@ -19,12 +19,12 @@ This project implements a hybrid drum synthesizer on the Teensy 4.x microcontrol
 - **Teensy Audio Shield** (SGTL5000-based)
 - **Sensors**:
   - Piezo sensors for center (A0) and rim (A3) detection
-  - Magnetic reed sensor (A1) for pitch selection
+  - Analog Hall effect sensor (A1) for pitch modulation
   - Force Sensitive Resistor (FSR) (A2) for decay control
 - **Connections**:
   - Piezo Center: A0
   - Piezo Rim: A3
-  - Magnetic reed: A1
+  - Analog Hall: A1
   - FSR: A2
 - **Power Supply**: Appropriate for Teensy and sensors
 
@@ -53,7 +53,7 @@ This project implements a hybrid drum synthesizer on the Teensy 4.x microcontrol
 
 ### Sensor Processing
 - **Piezo ISRs**: Samples center and rim piezos at 5 kHz to detect peaks and debounce hits.
-- **Reed State Capture**: Latches reed open/closed state for deterministic pitch selection.
+- **Hall Smoothing**: Applies exponential smoothing to Hall ADC readings for stable pitch control.
 - **FSR Reading**: Captures FSR value for decay control during each hit.
 
 ### Audio Synthesis
@@ -71,13 +71,13 @@ This project implements a hybrid drum synthesizer on the Teensy 4.x microcontrol
 
 Key constants are defined at the top of `src/play.cpp`:
 
-- **Thresholds and Sensor States**: Adjust `PIEZO_THRESHOLD` and reed active/open/closed constants for calibration.
+- **Thresholds and Sensor Ranges**: Adjust `PIEZO_THRESHOLD`, `HALL_MIN_ADC/HALL_MAX_ADC`, and Hall frequency range constants.
 - **Audio Gains**: Modify mixer gains in `setup()` for balance.
 - **Synthesis Parameters**: Tune FM indices, noise amplitudes in helper functions.
 
 ## Usage
 
-- **Playing**: Hit the piezos (center/rim) to trigger sounds. Toggle the magnetic reed state to change pitch band. Press the FSR for shorter/longer decay.
+- **Playing**: Hit the piezos (center/rim) to trigger sounds. Move the Hall sensor through the magnetic field to sweep pitch. Press the FSR for shorter/longer decay.
 - **Calibration**: Monitor Serial output for sensor values and adjust thresholds as needed.
 - **Debugging**: Serial prints status and errors.
 

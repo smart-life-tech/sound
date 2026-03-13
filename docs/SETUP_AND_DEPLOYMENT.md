@@ -52,7 +52,7 @@ pio device monitor -b 115200
 
 2. Confirm boot log appears.
 3. Hit piezo and verify `HIT` trigger print.
-4. Toggle reed state and verify frequency field updates.
+4. Move Hall sensor through magnetic field and verify frequency field updates.
 5. Apply FSR pressure and verify fade field updates.
 
 ## 6. Deployment Record (Required)

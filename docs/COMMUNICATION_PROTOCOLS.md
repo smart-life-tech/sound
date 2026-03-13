@@ -4,7 +4,7 @@
 
 The current firmware uses three interface categories:
 
-1. **Sensor acquisition** (piezo ADC, reed GPIO, FSR ADC)
+1. **Sensor acquisition** (piezo ADC, Hall ADC, FSR ADC)
 2. **Digital audio transport** through Teensy Audio I2S output
 3. **USB Serial debug telemetry**
 
@@ -12,7 +12,7 @@ No network stack, BLE, CAN, or UART-based external module protocol is implemente
 
 ## 2. Analog Sensor Interface
 
-- Interface type: mixed sensor front-end (analog ADC + digital GPIO).
+- Interface type: analog ADC sensor front-end.
 - Sampling model: polled via `piezoISR()` from `loop()`.
 - Conditioning used in firmware:
   - thresholding,
@@ -29,7 +29,7 @@ No network stack, BLE, CAN, or UART-based external module protocol is implemente
 
 - Transport: USB CDC Serial.
 - Configured monitor speed: `115200` (development monitor setting).
-- Payload: human-readable diagnostic lines containing piezo, reed state, FSR, frequency, fade, and active state.
+- Payload: human-readable diagnostic lines containing piezo, Hall value, FSR, frequency, fade, and active state.
 - Message framing: newline-delimited plaintext (`Serial.printf`).
 
 ## 5. Timing and Reliability Notes

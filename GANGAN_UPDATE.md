@@ -28,9 +28,9 @@ Embedded full `AudioSynthGanGan` class definition with the new parameters you pr
 
 #### 2. **Sensor Modulation** (Updated)
 
-**Magnetic Reed Sensor (A1) → Base Frequency Selection**
-- Digital open/closed state selects one of two body-frequency anchors
-- Open state uses low base frequency, closed state uses high base frequency
+**Analog Hall Sensor (A1) → Base Frequency Modulation**
+- Hall ADC value is smoothed and normalized
+- Continuous mapping drives body-frequency pitch sweep
 
 **FSR Sensor (A0) → Output Gain**
 - Range: [0, 1023] ADC → [0.4, 1.0] gain
@@ -41,8 +41,8 @@ Embedded full `AudioSynthGanGan` class definition with the new parameters you pr
 - Rising-edge detection → calls `ganGan.noteOn()`
 - Debounced 50ms between triggers
 
-#### 3. **Reed Pitch Behavior**
-The magnetic reed sensor now controls **discrete pitch selection** through base body frequency (`bFreq`) switching. This provides deterministic, low-noise control suitable for magnetic switching hardware.
+#### 3. **Hall Pitch Behavior**
+The analog Hall sensor now controls **continuous pitch modulation** through base body frequency (`bFreq`) mapping. This allows smooth pitch movement as magnetic field strength changes.
 
 #### 4. **Audio Memory & Latency**
 - Reduced from 20 to 12 blocks (simpler synth, less memory needed)
@@ -55,34 +55,31 @@ The magnetic reed sensor now controls **discrete pitch selection** through base 
 
 1. **Upload** to Teensy 4.1
 2. **Hit piezo** → Hear GanGan drum sound (600 Hz FM attack dropping to 6 Hz, 46 Hz harmonic body)
-3. **Toggle reed state with magnet movement** → Pitch of drum should switch between low/high base frequencies
+3. **Move Hall sensor through magnetic field** → Pitch of drum should sweep continuously across the configured range
 4. **Press FSR** → Sound gets louder (sustain/volume control)
 5. **Check Serial** for real-time sensor values and active state
 
 ---
 
-## If Reed Pitch Spread Needs Adjustment
+## If Hall Pitch Spread Needs Adjustment
 
 Try modifying the loop:
 
 ### Option A: Map to FM Start Frequency
 ```cpp
-if (reedPitchClosed) {
-	ganGan.setBFreq(280.0f);
-} else {
-	ganGan.setBFreq(80.0f);
-}
+float hallNorm = constrain((smoothedHall - HALL_MIN_ADC) / (HALL_MAX_ADC - HALL_MIN_ADC), 0.0f, 1.0f);
+ganGan.setBFreq(80.0f + 200.0f * hallNorm);
 ```
 
 ### Option B: Map to Both FM and Body
 ```cpp
-ganGan.aStartFreq = reedPitchClosed ? 500.0f : 280.0f;
-ganGan.setBFreq(reedPitchClosed ? 260.0f : 70.0f);
+ganGan.aStartFreq = 280.0f + 220.0f * hallNorm;
+ganGan.setBFreq(70.0f + 190.0f * hallNorm);
 ```
 
 ### Option C: Steeper Exponential Curve
 ```cpp
-ganGan.setBFreq(reedPitchClosed ? 320.0f : 55.0f);
+ganGan.setBFreq(55.0f + 265.0f * hallNorm);
 ```
 
 ---
@@ -90,7 +87,7 @@ ganGan.setBFreq(reedPitchClosed ? 320.0f : 55.0f);
 ## Summary
 
 ✅ GanGan synth now running in `play.cpp` with your exact parameters  
-✅ Magnetic reed → Base frequency selection (open/closed pitch bands)  
+✅ Analog Hall sensor → Base frequency modulation (continuous pitch mapping)  
 ✅ FSR → Output gain (sustain control)  
 ✅ Piezo → Trigger noteOn  
-⚠️ If pitch spread needs to be larger, tune open/closed frequency constants
+⚠️ If pitch spread needs to be larger, tune Hall normalization and min/max frequency constants

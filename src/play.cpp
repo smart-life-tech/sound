@@ -2,7 +2,7 @@
    Teensy 4.x GAN-GAN SYNTHESIS WITH REAL-TIME SENSOR MODULATION
    - GanGan synth: FM attack + harmonic body + subharmonic jitter
    - Parameters tuned for expressive drum sound
-  - Magnetic reed sensor (A1) → Base frequency selection (pitch control)
+    - Analog Hall effect sensor (A1) → Base frequency modulation (pitch control)
    - FSR sensor (A0) → Output gain (sustain/volume control)
    - Piezo sensor (A2) → Trigger noteOn
 */
@@ -15,16 +15,18 @@
 
 // ------------------- PINS -------------------
 #define PIEZO_CENTER_PIN A2
-#define REED_PITCH_PIN A1
+#define HALL_PITCH_PIN A1
 #define FSR_PIN A0
 
 // ------------------- CONFIG -------------------
 #define PIEZO_THRESHOLD 200
 #define PIEZO_DEBOUNCE_MS 1
 
-#define REED_ACTIVE_STATE LOW
-#define REED_OPEN_FREQ_HZ 70.0f
-#define REED_CLOSED_FREQ_HZ 250.0f
+#define HALL_MIN_ADC 0.0f
+#define HALL_MAX_ADC 1023.0f
+#define HALL_SMOOTH_ALPHA 0.20f
+#define HALL_FREQ_MIN_HZ 70.0f
+#define HALL_FREQ_MAX_HZ 250.0f
 
 // =============== GANGAN SYNTH CLASS ===============
 class AudioSynthGanGan : public AudioStream
@@ -168,7 +170,7 @@ AudioConnection patchCord2(ganGan, 0, i2s1, 1);
 // =============== GLOBAL STATE ===============
 volatile uint16_t piezoCenterPeak = 0;
 volatile uint32_t lastHitMs = 0;
-volatile bool reedPitchClosed = false;
+volatile float smoothedHall = 0.0f;
 volatile bool inPeakState = false;
 volatile uint16_t currentFSR = 0;
 // =============== ISR: PIEZO EDGE DETECTION & GANGAN TRIGGER ===============
@@ -177,14 +179,14 @@ void piezoISR()
     uint32_t now = millis();
     uint16_t piezoRaw = analogReadFast(PIEZO_CENTER_PIN);
     uint16_t fsrRaw   = analogReadFast(FSR_PIN);
-    bool     reedClosedNow = (digitalRead(REED_PITCH_PIN) == REED_ACTIVE_STATE);
+    float    hallRaw  = analogReadFast(HALL_PITCH_PIN);
 
     // Update shared state
     piezoCenterPeak = piezoRaw;
     currentFSR      = fsrRaw;
 
-    // Snapshot reed pitch state for loop-side modulation.
-    reedPitchClosed = reedClosedNow;
+    // Hall smoothing for stable pitch modulation.
+    smoothedHall = (1.0f - HALL_SMOOTH_ALPHA) * smoothedHall + HALL_SMOOTH_ALPHA * hallRaw;
 
     // ----------------------------------------------------------------------
     // NEW: PROPER DRUM TRIGGER LOGIC
@@ -227,7 +229,7 @@ void piezoISR()
 
         ganGan.noteOn(velocity);
         delayMicroseconds(30); // debounce
-        Serial.printf(">>> HIT   vel: %.2f   piezo: %d   reed:%d\n", velocity, piezoRaw, reedPitchClosed ? 1 : 0);
+        Serial.printf(">>> HIT   vel: %.2f   piezo: %d   hall:%.0f\n", velocity, piezoRaw, smoothedHall);
         return;
     }
 
@@ -255,18 +257,18 @@ void setup()
 
   // Sensor pins
   pinMode(PIEZO_CENTER_PIN, INPUT);
-  pinMode(REED_PITCH_PIN, INPUT_PULLUP);
+  pinMode(HALL_PITCH_PIN, INPUT);
   pinMode(FSR_PIN, INPUT);
 
   // Init state
   piezoCenterPeak = 0;
   lastHitMs = 0;
-  reedPitchClosed = (digitalRead(REED_PITCH_PIN) == REED_ACTIVE_STATE);
+  smoothedHall = analogReadFast(HALL_PITCH_PIN);
   currentFSR = 0;
   inPeakState = false;
 
   Serial.println("GAN-GAN Setup complete. Ready for hits!");
-  Serial.println("Magnetic Reed → Base Freq | FSR → Output Gain");
+  Serial.println("Analog Hall → Base Freq | FSR → Output Gain");
 }
 
 // =============== MAIN LOOP: SENSOR POLLING & REAL-TIME MODULATION ===============
@@ -275,10 +277,12 @@ void loop()
   // Poll sensors continuously
   piezoISR();
 
-  // 1. Magnetic Reed → GanGan Base Frequency (bFreq)
-  // Reed open/closed selects one of two pitch anchors.
-  const float reedFreq = reedPitchClosed ? REED_CLOSED_FREQ_HZ : REED_OPEN_FREQ_HZ;
-  ganGan.setBFreq(reedFreq);
+  // 1. Analog Hall → GanGan Base Frequency (bFreq)
+  // Map smoothed Hall ADC value to continuous pitch range.
+  float hallNorm = (smoothedHall - HALL_MIN_ADC) / (HALL_MAX_ADC - HALL_MIN_ADC);
+  hallNorm = constrain(hallNorm, 0.0f, 1.0f);
+  float hallFreq = HALL_FREQ_MIN_HZ + (HALL_FREQ_MAX_HZ - HALL_FREQ_MIN_HZ) * hallNorm;
+  ganGan.setBFreq(hallFreq);
 
   // 2. FSR → Damping (controls fade-out time after hit)
   // Map FSR [0, 1023] → fade time [0.1s, 2.0s]
@@ -292,8 +296,8 @@ void loop()
   if (millis() - lastDebugMs >= 500)
   {
     lastDebugMs = millis();
-    Serial.printf("Piezo: %4d | Reed: %d (freq: %6.1f Hz) | FSR: %4d (fade: %.2fs) | Active: %d\n",
-            piezoCenterPeak, reedPitchClosed ? 1 : 0, reedFreq, currentFSR, fadeTime, ganGan.isActive());
+    Serial.printf("Piezo: %4d | Hall: %4.0f (freq: %6.1f Hz) | FSR: %4d (fade: %.2fs) | Active: %d\n",
+            piezoCenterPeak, smoothedHall, hallFreq, currentFSR, fadeTime, ganGan.isActive());
   }
 
   // delay(2);
