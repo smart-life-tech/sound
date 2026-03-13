@@ -19,7 +19,7 @@ Ensure firmware configuration and supported hardware are aligned with the approv
 | MCU board | Teensy 4.1 | Required by `env:teensy41` build target |
 | Audio output path | SGTL5000-compatible Teensy audio path | Required by `AudioControlSGTL5000` + I2S output |
 | Sensor input | Piezo sensor | Required for hit trigger |
-| Sensor input | Flex sensor | Required for pitch/body modulation |
+| Sensor input | Magnetic reed sensor | Required for pitch/body-frequency selection |
 | Sensor input | FSR sensor | Required for fade/sustain modulation |
 
 ## 4. Software Component Dependencies

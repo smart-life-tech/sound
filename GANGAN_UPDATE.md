@@ -28,10 +28,9 @@ Embedded full `AudioSynthGanGan` class definition with the new parameters you pr
 
 #### 2. **Sensor Modulation** (Updated)
 
-**Flex Sensor (A1) → Base Frequency**
-- Range: [FLEX_MIN=250, FLEX_MAX=3800] ADC → [40 Hz, 800 Hz]
-- Exponential curve for musical pitch spacing
-- Formula: `bFreq = 40 * 20^(flexNorm)` creates natural pitch sweep
+**Magnetic Reed Sensor (A1) → Base Frequency Selection**
+- Digital open/closed state selects one of two body-frequency anchors
+- Open state uses low base frequency, closed state uses high base frequency
 
 **FSR Sensor (A0) → Output Gain**
 - Range: [0, 1023] ADC → [0.4, 1.0] gain
@@ -42,11 +41,8 @@ Embedded full `AudioSynthGanGan` class definition with the new parameters you pr
 - Rising-edge detection → calls `ganGan.noteOn()`
 - Debounced 50ms between triggers
 
-#### 3. **Why Flex Still Minimal on Sound**
-The Flex sensor now modulates the **base body frequency (bFreq)** rather than a filter cutoff. To make it more audible:
-
-- **Current mapping**: 40–800 Hz is subtle for a percussive sound (46 Hz is already in this range)
-- **To enhance**: Try mapping to a narrower, more perceptible range like **30–100 Hz** or map to `aStartFreq` (FM sweep start) instead for more dramatic tonal change
+#### 3. **Reed Pitch Behavior**
+The magnetic reed sensor now controls **discrete pitch selection** through base body frequency (`bFreq`) switching. This provides deterministic, low-noise control suitable for magnetic switching hardware.
 
 #### 4. **Audio Memory & Latency**
 - Reduced from 20 to 12 blocks (simpler synth, less memory needed)
@@ -59,32 +55,34 @@ The Flex sensor now modulates the **base body frequency (bFreq)** rather than a 
 
 1. **Upload** to Teensy 4.1
 2. **Hit piezo** → Hear GanGan drum sound (600 Hz FM attack dropping to 6 Hz, 46 Hz harmonic body)
-3. **Bend Flex sensor** → Pitch of drum should change (deep = 40 Hz, high = 800 Hz)
+3. **Toggle reed state with magnet movement** → Pitch of drum should switch between low/high base frequencies
 4. **Press FSR** → Sound gets louder (sustain/volume control)
 5. **Check Serial** for real-time sensor values and active state
 
 ---
 
-## If Flex Still Not Dramatic Enough
+## If Reed Pitch Spread Needs Adjustment
 
 Try modifying the loop:
 
 ### Option A: Map to FM Start Frequency
 ```cpp
-float flexFreq = 300.0f + (300.0f * flexNorm);  // 300–600 Hz FM start
-ganGan.aStartFreq = flexFreq;
+if (reedPitchClosed) {
+	ganGan.setBFreq(280.0f);
+} else {
+	ganGan.setBFreq(80.0f);
+}
 ```
 
 ### Option B: Map to Both FM and Body
 ```cpp
-ganGan.aStartFreq = 300.0f + (300.0f * flexNorm);
-ganGan.setBFreq(30.0f + (70.0f * flexNorm));  // 30–100 Hz body
+ganGan.aStartFreq = reedPitchClosed ? 500.0f : 280.0f;
+ganGan.setBFreq(reedPitchClosed ? 260.0f : 70.0f);
 ```
 
 ### Option C: Steeper Exponential Curve
 ```cpp
-float flexFreq = 30.0f * powf(26.67f, flexNorm);  // 30–800 Hz, more aggressive
-ganGan.setBFreq(flexFreq);
+ganGan.setBFreq(reedPitchClosed ? 320.0f : 55.0f);
 ```
 
 ---
@@ -92,7 +90,7 @@ ganGan.setBFreq(flexFreq);
 ## Summary
 
 ✅ GanGan synth now running in `play.cpp` with your exact parameters  
-✅ Flex → Base frequency (exponential 40–800 Hz)  
+✅ Magnetic reed → Base frequency selection (open/closed pitch bands)  
 ✅ FSR → Output gain (sustain control)  
 ✅ Piezo → Trigger noteOn  
-⚠️ Flex modulation subtle; adjust mapping if needed for more obvious effect
+⚠️ If pitch spread needs to be larger, tune open/closed frequency constants

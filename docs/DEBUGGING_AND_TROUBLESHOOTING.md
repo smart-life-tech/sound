@@ -4,7 +4,7 @@
 
 - Serial diagnostics in `src/play.cpp` (`Serial.printf` blocks)
 - PlatformIO build output and linker diagnostics
-- Runtime sensor telemetry (piezo/flex/FSR fields)
+- Runtime sensor telemetry (piezo/reed/FSR fields)
 
 ## 2. Fast Triage Flow
 
@@ -18,9 +18,9 @@
 3. **Double trigger / false trigger**
    - Verify lockout behavior and quiet-zone re-arm.
    - Improve piezo mechanical damping and wiring noise isolation.
-4. **Flex effect not audible**
-   - Validate `smoothedFlex` range.
-   - Recalibrate `FLEX_MIN/FLEX_MAX` mapping.
+4. **Reed pitch switch not responding**
+   - Validate reed state toggles in telemetry (`Reed: 0/1`).
+   - Verify magnet proximity and wiring polarity with `INPUT_PULLUP` logic.
 5. **FSR sustain not responsive**
    - Check `currentFSR` changing over full range.
    - Adjust fade mapping limits.

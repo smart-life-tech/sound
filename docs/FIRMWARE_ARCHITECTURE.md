@@ -2,7 +2,7 @@
 
 ## 1. Firmware Purpose
 
-The `genesis` firmware runs on Teensy 4.1 and implements a sensor-triggered percussion engine based on a custom `AudioSynthGanGan` synthesis block. It reads analog sensors (piezo, flex, FSR), detects hit events, and drives real-time sound generation through the Teensy audio stack.
+The `genesis` firmware runs on Teensy 4.1 and implements a sensor-triggered percussion engine based on a custom `AudioSynthGanGan` synthesis block. It reads sensor inputs (piezo analog, magnetic reed digital, FSR analog), detects hit events, and drives real-time sound generation through the Teensy audio stack.
 
 Primary implementation file: `src/play.cpp`
 
@@ -12,8 +12,8 @@ Primary implementation file: `src/play.cpp`
 
 - **Control loop (`loop`)**
   - Polls sensor ISR routine (`piezoISR`) in software.
-  - Applies continuous modulation mapping:
-    - Flex sensor → base body frequency (`bFreq`)
+  - Applies modulation mapping:
+    - Magnetic reed sensor → base body frequency selection (`bFreq`)
     - FSR sensor → fade time (`fadeTime`)
   - Emits periodic debug telemetry over Serial.
 
@@ -40,9 +40,9 @@ Primary implementation file: `src/play.cpp`
 
 - Reads analog values from:
   - Piezo (`PIEZO_CENTER_PIN`)
-  - Flex (`FLEX_PIN`)
+  - Magnetic reed (`REED_PITCH_PIN`)
   - FSR (`FSR_PIN`)
-- Performs smoothing and hit-arm/re-arm logic.
+- Performs hit-arm/re-arm logic and snapshots reed state.
 - Applies lockout to reduce piezo bounce retriggering.
 
 ### 3.2 Trigger/Velocity Logic

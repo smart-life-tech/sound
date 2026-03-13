@@ -8,7 +8,7 @@ This project implements a hybrid drum synthesizer on the Teensy 4.x microcontrol
 - **Karplus-Strong Resonant Body**: Plucked string algorithm for sustained, resonant drum body tones.
 - **Noise Burst Transient**: White noise envelope for added texture and punch.
 - **Center vs Rim Detection**: Different note blocks and timbres based on hit location (center vs rim piezo sensors).
-- **Flex Sensor Integration**: Selects one of four notes within a block for pitch variation.
+- **Magnetic Reed Pitch Input**: Switches between two base-frequency targets for pitch variation.
 - **FSR Sensor Control**: Controls attenuation and decay of the Karplus-Strong body for dynamic damping.
 - **Real-Time Processing**: Uses FreeRTOS for task scheduling and an ISR for high-frequency sensor sampling (5 kHz).
 - **Audio Output**: Stereo output via I2S to the Teensy Audio Shield.
@@ -19,12 +19,12 @@ This project implements a hybrid drum synthesizer on the Teensy 4.x microcontrol
 - **Teensy Audio Shield** (SGTL5000-based)
 - **Sensors**:
   - Piezo sensors for center (A0) and rim (A3) detection
-  - Flex sensor (A1) for note selection
+  - Magnetic reed sensor (A1) for pitch selection
   - Force Sensitive Resistor (FSR) (A2) for decay control
 - **Connections**:
   - Piezo Center: A0
   - Piezo Rim: A3
-  - Flex: A1
+  - Magnetic reed: A1
   - FSR: A2
 - **Power Supply**: Appropriate for Teensy and sensors
 
@@ -43,7 +43,7 @@ This project implements a hybrid drum synthesizer on the Teensy 4.x microcontrol
 2. **Connect Hardware**: Wire the sensors to the specified analog pins on the Teensy.
 
 3. **Upload Code**:
-   - Open `src/main.cpp` in Arduino IDE.
+  - Open `src/play.cpp` in Arduino IDE.
    - Select the correct Teensy board and port.
    - Compile and upload to the Teensy.
 
@@ -53,7 +53,7 @@ This project implements a hybrid drum synthesizer on the Teensy 4.x microcontrol
 
 ### Sensor Processing
 - **Piezo ISRs**: Samples center and rim piezos at 5 kHz to detect peaks and debounce hits.
-- **Flex Smoothing**: Exponential smoothing on flex sensor readings for stable note selection.
+- **Reed State Capture**: Latches reed open/closed state for deterministic pitch selection.
 - **FSR Reading**: Captures FSR value for decay control during each hit.
 
 ### Audio Synthesis
@@ -69,21 +69,21 @@ This project implements a hybrid drum synthesizer on the Teensy 4.x microcontrol
 
 ## Configuration
 
-Key constants are defined at the top of `main.cpp`:
+Key constants are defined at the top of `src/play.cpp`:
 
-- **Thresholds and Ranges**: Adjust `PIEZO_THRESHOLD`, `FLEX_MIN/MAX`, etc., for sensor calibration.
+- **Thresholds and Sensor States**: Adjust `PIEZO_THRESHOLD` and reed active/open/closed constants for calibration.
 - **Audio Gains**: Modify mixer gains in `setup()` for balance.
 - **Synthesis Parameters**: Tune FM indices, KS damping, noise amplitudes in helper functions.
 
 ## Usage
 
-- **Playing**: Hit the piezos (center/rim) to trigger sounds. Bend the flex sensor to change notes. Press the FSR for shorter/longer decay.
+- **Playing**: Hit the piezos (center/rim) to trigger sounds. Toggle the magnetic reed state to change pitch band. Press the FSR for shorter/longer decay.
 - **Calibration**: Monitor Serial output for sensor values and adjust thresholds as needed.
 - **Debugging**: Serial prints status and errors.
 
 ## File Structure
 
-- `src/main.cpp`: Main synthesizer code with setup, loop, ISRs, and synthesis functions.
+- `src/play.cpp`: Main synthesizer code with setup, loop, ISR polling, and synthesis functions.
 
 ## Notes
 

@@ -14,7 +14,7 @@ This firmware reconfigures the drum instrument from **synthesis-driven** (FM+KS+
 | Sensor | Pin | Function | Mapping |
 |--------|-----|----------|---------|
 | **Piezo** | A2 | Trigger playback | Rising edge → play `drum_raw` |
-| **Flex** | A1 | Brightness control | [250, 3800] → Filter cutoff [500 Hz, 4000 Hz] |
+| **Magnetic reed** | A1 | Pitch/brightness state control | Open/closed state selects modulation target |
 | **FSR** | A0 | Sustain control | [0, 1023] → Playback volume [1.0, 0.0] (inverted) |
 
 ## Audio Chain
@@ -22,7 +22,7 @@ This firmware reconfigures the drum instrument from **synthesis-driven** (FM+KS+
 ```
 Piezo (trigger) → ISR → playMem.play(drum_raw)
                            ↓
-                        filter (Flex-modulated cutoff)
+                        filter (reed-state modulated cutoff)
                            ↓
                         mixer (FSR-modulated gain)
                            ↓
@@ -47,10 +47,10 @@ Piezo (trigger) → ISR → playMem.play(drum_raw)
 3. Subsequent hits debounced 50ms
 4. Only one playback active at a time (no overlapping)
 
-### Flex Sensor (Brightness)
-- **Pressed (lower resistance)** → Dark tone (500 Hz cutoff)
-- **Released (higher resistance)** → Bright tone (4000 Hz cutoff)
-- Smooth filter sweep via exponential smoothing
+### Magnetic Reed Sensor (Pitch/Brightness State)
+- **Open state** → Low modulation state
+- **Closed state** → High modulation state
+- Deterministic switching with pull-up digital input
 
 ### FSR Sensor (Sustain)
 - **Not pressed (FSR = 0)** → Full volume (gain = 1.0)
@@ -62,7 +62,7 @@ Piezo (trigger) → ISR → playMem.play(drum_raw)
 
 Serial output every 500ms:
 ```
-Piezo: 0345 | Flex: 2450 (cut:  2250 Hz) | FSR: 0123 (gain: 0.88) | Playing: 1
+Piezo: 0345 | Reed: 1 (freq: 250.0 Hz) | FSR: 0123 (gain: 0.88) | Playing: 1
 ```
 
 Manual trigger commands:
@@ -79,14 +79,14 @@ Manual trigger commands:
 ## Expected Sound Characteristics
 
 ✓ **Authentic original audio timbre** (no metallic artifacts)
-✓ **Expressive control** (Flex for tone, FSR for muting)
+✓ **Expressive control** (reed for pitch-state, FSR for muting)
 ✓ **Clean single hits** (peak-tracking prevents double-trigger)
 ✓ **Responsive** (real-time filter/volume modulation)
 
 ## Modification Points (if needed later)
 
 1. **Change playback sample**: Replace `drum_raw` reference in `piezoISR()`
-2. **Adjust filter range**: Edit `flexCutoff` calculation (currently 500–4000 Hz)
+2. **Adjust reed modulation range**: Edit open/closed mapping constants in firmware
 3. **Change FSR behavior**: Modify gain mapping (currently inverted volume)
 4. **Add velocity sensitivity**: Map `piezoCenterPeak` to playback speed/amplitude
 5. **Looping playback**: Uncomment auto-replay in main loop
@@ -95,7 +95,7 @@ Manual trigger commands:
 
 1. **Compile & upload** to Teensy 4.1
 2. **Test piezo hit** → Should hear original drum sample
-3. **Test Flex sensor** → Tone should brighten/darken
+3. **Test reed sensor** → Tone/pitch state should switch reliably
 4. **Test FSR sensor** → Sound should fade/mute when pressed
 5. **Iterate modulation ranges** if behavior doesn't match expectations
 

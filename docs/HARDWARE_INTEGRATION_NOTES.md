@@ -4,7 +4,7 @@
 
 - Teensy 4.1 MCU board
 - Piezo sensor module (trigger source)
-- Flex sensor module (pitch/body-frequency modulation)
+- Magnetic reed sensor module (pitch/body-frequency selection)
 - FSR module (fade/sustain modulation)
 - Audio output chain through Teensy I2S + SGTL5000 control path
 
@@ -12,13 +12,14 @@
 
 - Sensor grounds must be common with Teensy ground.
 - Analog sensor wiring should be short and noise-managed (routing away from high-current switching lines).
+- Reed signal line should use pull-up topology (`INPUT_PULLUP`) and clean mechanical placement for consistent switching.
 - Piezo input conditioning should include practical protection in hardware where needed.
 - Use stable power rails for analog sensors to reduce jitter and false triggering.
 
 ## 3. Firmware-to-Hardware Coupling Points
 
 - Piezo threshold logic (`PIEZO_THRESHOLD`) is hardware-dependent and may require per-batch calibration.
-- Flex smoothing (`FLEX_SMOOTH_ALPHA`) and normalization bounds should be calibrated against installed sensor lot.
+- Reed logic level and magnet spacing should be calibrated so state transitions are stable at the intended motion range.
 - FSR fade mapping (`0.1s` to `2.0s`) should be validated against desired playing feel.
 
 ## 4. Integration Test Procedure
@@ -26,7 +27,7 @@
 1. Boot device and confirm Serial startup logs.
 2. Verify idle sensor values are stable.
 3. Strike piezo repeatedly and verify one trigger per hit.
-4. Sweep flex sensor and verify base frequency changes.
+4. Toggle reed open/closed state and verify base frequency switches accordingly.
 5. Apply FSR pressure and verify fade extension.
 6. Confirm stereo output audibility and absence of clipping artifacts.
 
