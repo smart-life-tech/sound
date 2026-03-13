@@ -28,6 +28,11 @@
 #define HALL_FREQ_MIN_HZ 70.0f
 #define HALL_FREQ_MAX_HZ 250.0f
 
+#define REEXCITE_WINDOW_MS 1200
+#define REEXCITE_COOLDOWN_MS 110
+#define HALL_REEXCITE_DELTA_THRESHOLD 12.0f
+#define HALL_REEXCITE_DELTA_MAX 180.0f
+
 // =============== GANGAN SYNTH CLASS ===============
 class AudioSynthGanGan : public AudioStream
 {
@@ -141,6 +146,16 @@ public:
     outputGain = velocity;
     active = true;
   }
+  void reExcite(float amount)
+  {
+    if (!active)
+      return;
+
+    float intensity = constrain(amount, 0.0f, 1.0f);
+    outputGain = constrain(outputGain + 0.18f * intensity, 0.0f, 1.0f);
+    envT = max(0.0f, envT - (0.012f + 0.028f * intensity));
+    sweepT = max(0.0f, sweepT - (0.012f + 0.018f * intensity));
+  }
   bool isActive() const { return active; }
 
 private:
@@ -228,6 +243,7 @@ void piezoISR()
         velocity = constrain(velocity, 0.75f, 1.0f);
 
         ganGan.noteOn(velocity);
+        lastHitMs = now;
         delayMicroseconds(30); // debounce
         Serial.printf(">>> HIT   vel: %.2f   piezo: %d   hall:%.0f\n", velocity, piezoRaw, smoothedHall);
         return;
@@ -277,12 +293,33 @@ void loop()
   // Poll sensors continuously
   piezoISR();
 
+  static float prevHall = 0.0f;
+  static uint32_t lastReexciteMs = 0;
+
+  const float hallDelta = fabsf(smoothedHall - prevHall);
+  prevHall = smoothedHall;
+
   // 1. Analog Hall → GanGan Base Frequency (bFreq)
   // Map smoothed Hall ADC value to continuous pitch range.
   float hallNorm = (smoothedHall - HALL_MIN_ADC) / (HALL_MAX_ADC - HALL_MIN_ADC);
   hallNorm = constrain(hallNorm, 0.0f, 1.0f);
   float hallFreq = HALL_FREQ_MIN_HZ + (HALL_FREQ_MAX_HZ - HALL_FREQ_MIN_HZ) * hallNorm;
   ganGan.setBFreq(hallFreq);
+
+  // 1b. Controlled re-excitation: fast Hall movement during active tail gives a small secondary boost.
+  uint32_t nowMs = millis();
+  bool inReexciteWindow = (lastHitMs > 0) && ((nowMs - lastHitMs) <= REEXCITE_WINDOW_MS);
+  bool cooldownElapsed = (nowMs - lastReexciteMs) >= REEXCITE_COOLDOWN_MS;
+  bool hallMovedFast = hallDelta >= HALL_REEXCITE_DELTA_THRESHOLD;
+
+  if (ganGan.isActive() && inReexciteWindow && cooldownElapsed && hallMovedFast)
+  {
+    float exciteAmount = (hallDelta - HALL_REEXCITE_DELTA_THRESHOLD) /
+                         (HALL_REEXCITE_DELTA_MAX - HALL_REEXCITE_DELTA_THRESHOLD);
+    exciteAmount = constrain(exciteAmount, 0.0f, 1.0f);
+    ganGan.reExcite(exciteAmount);
+    lastReexciteMs = nowMs;
+  }
 
   // 2. FSR → Damping (controls fade-out time after hit)
   // Map FSR [0, 1023] → fade time [0.1s, 2.0s]
