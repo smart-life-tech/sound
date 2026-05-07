@@ -188,6 +188,11 @@ volatile uint32_t lastHitMs = 0;
 volatile float smoothedHall = 0.0f;
 volatile bool inPeakState = false;
 volatile uint16_t currentFSR = 0;
+
+// =============== CONTINUOUS PLAYBACK ===============
+bool continuousPlayback = true;
+uint32_t lastContinuousTriggerMs = 0;
+const uint32_t CONTINUOUS_TRIGGER_INTERVAL_MS = 1000; // trigger every ~600ms
 // =============== ISR: PIEZO EDGE DETECTION & GANGAN TRIGGER ===============
 void piezoISR()
 {
@@ -202,6 +207,10 @@ void piezoISR()
 
     // Hall smoothing for stable pitch modulation.
     smoothedHall = (1.0f - HALL_SMOOTH_ALPHA) * smoothedHall + HALL_SMOOTH_ALPHA * hallRaw;
+
+    // If continuous playback is enabled, skip hit detection
+    if (continuousPlayback)
+        return;
 
     // ----------------------------------------------------------------------
     // NEW: PROPER DRUM TRIGGER LOGIC
@@ -285,6 +294,7 @@ void setup()
 
   Serial.println("GAN-GAN Setup complete. Ready for hits!");
   Serial.println("Analog Hall → Base Freq | FSR → Output Gain");
+  Serial.println("Press 'c' to toggle continuous playback mode");
 }
 
 // =============== MAIN LOOP: SENSOR POLLING & REAL-TIME MODULATION ===============
@@ -335,6 +345,37 @@ void loop()
     lastDebugMs = millis();
     Serial.printf("Piezo: %4d | Hall: %4.0f (freq: %6.1f Hz) | FSR: %4d (fade: %.2fs) | Active: %d\n",
             piezoCenterPeak, smoothedHall, hallFreq, currentFSR, fadeTime, ganGan.isActive());
+  }
+
+  // 3. CONTINUOUS PLAYBACK MODE
+  // When enabled, trigger notes at steady intervals, bypassing piezo detection
+  if (continuousPlayback)
+  {
+    uint32_t nowMs = millis();
+    if (nowMs - lastContinuousTriggerMs >= CONTINUOUS_TRIGGER_INTERVAL_MS)
+    {
+      lastContinuousTriggerMs = nowMs;
+      
+      // Use FSR for velocity control in continuous mode
+      float velocity = constrain(currentFSR / 1023.0f, 0.5f, 1.0f);
+      ganGan.noteOn(velocity);
+      
+      Serial.printf(">>> CONTINUOUS TRIGGER   vel: %.2f   hall:%.0f Hz   fsr:%d\n", 
+                    velocity, hallFreq, currentFSR);
+    }
+  }
+
+  // 4. SERIAL COMMANDS
+  if (Serial.available())
+  {
+    char cmd = Serial.read();
+    if (cmd == 'c' || cmd == 'C')
+    {
+      continuousPlayback = !continuousPlayback;
+      Serial.printf("Continuous playback: %s\n", continuousPlayback ? "ON" : "OFF");
+      if (continuousPlayback)
+        Serial.println("  (FSR controls velocity, Hall controls pitch)");
+    }
   }
 
   // delay(2);
