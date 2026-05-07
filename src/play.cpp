@@ -272,7 +272,7 @@ void setup()
   // Audio setup
   AudioMemory(12);
   audioShield.enable();
-  audioShield.volume(0.7);
+  audioShield.volume(1.0);
 
   // GanGan initialization with provided parameters
   ganGan.setBFreq(46.0f);     // base frequency (body)
@@ -357,7 +357,7 @@ void loop()
       lastContinuousTriggerMs = nowMs;
       
       // Use FSR for velocity control in continuous mode
-      float velocity = constrain(currentFSR / 1023.0f, 0.5f, 1.0f);
+      float velocity = constrain(currentFSR / 1023.0f, 0.8f, 1.0f);
       ganGan.noteOn(velocity);
       
       Serial.printf(">>> CONTINUOUS TRIGGER   vel: %.2f   hall:%.0f Hz   fsr:%d\n", 
