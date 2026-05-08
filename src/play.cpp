@@ -23,7 +23,7 @@
 #define PIEZO_DEBOUNCE_MS 1
 
 #define HALL_MIN_ADC 523.0f
-#define HALL_MAX_ADC 570.0f
+#define HALL_MAX_ADC 780.0f
 #define HALL_SMOOTH_ALPHA 0.20f
 #define HALL_FREQ_MIN_HZ 70.0f
 #define HALL_FREQ_MAX_HZ 250.0f
@@ -193,6 +193,14 @@ volatile uint16_t currentFSR = 0;
 bool continuousPlayback = false;
 uint32_t lastContinuousTriggerMs = 0;
 const uint32_t CONTINUOUS_TRIGGER_INTERVAL_MS = 400; // trigger every ~600ms
+
+static inline float hallAdcToFreqHz(float hallAdc)
+{
+  float hallNorm = (hallAdc - HALL_MIN_ADC) / (HALL_MAX_ADC - HALL_MIN_ADC);
+  hallNorm = constrain(hallNorm, 0.0f, 1.0f);
+  return HALL_FREQ_MIN_HZ + (HALL_FREQ_MAX_HZ - HALL_FREQ_MIN_HZ) * hallNorm;
+}
+
 // =============== ISR: PIEZO EDGE DETECTION & GANGAN TRIGGER ===============
 void piezoISR()
 {
@@ -251,10 +259,12 @@ void piezoISR()
         float velocity = (piezoSmooth - PIEZO_THRESHOLD) / (700.0f - PIEZO_THRESHOLD);
         velocity = constrain(velocity, 0.75f, 1.0f);
 
+        float hitHallFreq = hallAdcToFreqHz(smoothedHall);
+        ganGan.setBFreq(hitHallFreq);
         ganGan.noteOn(velocity);
         lastHitMs = now;
         delayMicroseconds(30); // debounce
-        Serial.printf(">>> HIT   vel: %.2f   piezo: %d   hall:%.0f\n", velocity, piezoRaw, smoothedHall);
+        Serial.printf(">>> HIT   vel: %.2f   piezo: %d   hall:%.0f (%.1f Hz)\n", velocity, piezoRaw, smoothedHall, hitHallFreq);
         return;
     }
 
@@ -313,9 +323,7 @@ void loop()
   // 1. Analog Hall → GanGan Base Frequency (bFreq)
   // Map raw Hall ADC value directly so calibration points stay exact:
   // 523 -> 70 Hz, 780 -> 250 Hz.
-  float hallNorm = ((float)rawHall - HALL_MIN_ADC) / (HALL_MAX_ADC - HALL_MIN_ADC);
-  hallNorm = constrain(hallNorm, 0.0f, 1.0f);
-  float hallFreq = HALL_FREQ_MIN_HZ + (HALL_FREQ_MAX_HZ - HALL_FREQ_MIN_HZ) * hallNorm;
+  float hallFreq = hallAdcToFreqHz((float)rawHall);
   ganGan.setBFreq(hallFreq);
 
   // 1b. Controlled re-excitation: fast Hall movement during active tail gives a small secondary boost.
