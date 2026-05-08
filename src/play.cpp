@@ -302,16 +302,18 @@ void loop()
 {
   // Poll sensors continuously
   piezoISR();
+  uint16_t rawHall = analogReadFast(HALL_PITCH_PIN);
 
   static float prevHall = 0.0f;
   static uint32_t lastReexciteMs = 0;
 
-  const float hallDelta = fabsf(smoothedHall - prevHall);
-  prevHall = smoothedHall;
+  const float hallDelta = fabsf((float)rawHall - prevHall);
+  prevHall = (float)rawHall;
 
   // 1. Analog Hall → GanGan Base Frequency (bFreq)
-  // Map smoothed Hall ADC value to continuous pitch range.
-  float hallNorm = (smoothedHall - HALL_MIN_ADC) / (HALL_MAX_ADC - HALL_MIN_ADC);
+  // Map raw Hall ADC value directly so calibration points stay exact:
+  // 523 -> 70 Hz, 780 -> 250 Hz.
+  float hallNorm = ((float)rawHall - HALL_MIN_ADC) / (HALL_MAX_ADC - HALL_MIN_ADC);
   hallNorm = constrain(hallNorm, 0.0f, 1.0f);
   float hallFreq = HALL_FREQ_MIN_HZ + (HALL_FREQ_MAX_HZ - HALL_FREQ_MIN_HZ) * hallNorm;
   ganGan.setBFreq(hallFreq);
@@ -343,8 +345,8 @@ void loop()
   if (millis() - lastDebugMs >= 500)
   {
     lastDebugMs = millis();
-    Serial.printf("Piezo: %4d | rawHall: %4.0f | Hall: %4.0f (freq: %6.1f Hz) | FSR: %4d (fade: %.2fs) | Active: %d\n",
-            piezoCenterPeak, analogRead(HALL_PITCH_PIN),smoothedHall, hallFreq, currentFSR, fadeTime, ganGan.isActive());
+    Serial.printf("Piezo: %4u | rawHall: %4u | smoothHall: %6.1f | selectedFreq: %6.1f Hz | FSR: %4u | fade: %.2fs | Active: %u\n",
+                  piezoCenterPeak, rawHall, smoothedHall, hallFreq, currentFSR, fadeTime, ganGan.isActive() ? 1u : 0u);
   }
 
   // 3. CONTINUOUS PLAYBACK MODE
