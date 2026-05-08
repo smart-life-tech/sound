@@ -343,8 +343,8 @@ void loop()
   if (millis() - lastDebugMs >= 500)
   {
     lastDebugMs = millis();
-    Serial.printf("Piezo: %4d | Hall: %4.0f (freq: %6.1f Hz) | FSR: %4d (fade: %.2fs) | Active: %d\n",
-            piezoCenterPeak, smoothedHall, hallFreq, currentFSR, fadeTime, ganGan.isActive());
+    Serial.printf("Piezo: %4d | rawHall: %4d | Hall: %4.0f (freq: %6.1f Hz) | FSR: %4d (fade: %.2fs) | Active: %d\n",
+            piezoCenterPeak, analogRead(HALL_PITCH_PIN),smoothedHall, hallFreq, currentFSR, fadeTime, ganGan.isActive());
   }
 
   // 3. CONTINUOUS PLAYBACK MODE
