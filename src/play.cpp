@@ -192,7 +192,7 @@ volatile uint16_t currentFSR = 0;
 // =============== CONTINUOUS PLAYBACK ===============
 bool continuousPlayback = true;
 uint32_t lastContinuousTriggerMs = 0;
-const uint32_t CONTINUOUS_TRIGGER_INTERVAL_MS = 1000; // trigger every ~600ms
+const uint32_t CONTINUOUS_TRIGGER_INTERVAL_MS = 400; // trigger every ~600ms
 // =============== ISR: PIEZO EDGE DETECTION & GANGAN TRIGGER ===============
 void piezoISR()
 {
