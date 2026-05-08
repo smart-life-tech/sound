@@ -22,8 +22,8 @@
 #define PIEZO_THRESHOLD 200
 #define PIEZO_DEBOUNCE_MS 1
 
-#define HALL_MIN_ADC 0.0f
-#define HALL_MAX_ADC 1023.0f
+#define HALL_MIN_ADC 523.0f
+#define HALL_MAX_ADC 780.0f
 #define HALL_SMOOTH_ALPHA 0.20f
 #define HALL_FREQ_MIN_HZ 70.0f
 #define HALL_FREQ_MAX_HZ 250.0f
