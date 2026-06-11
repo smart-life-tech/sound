@@ -17,15 +17,13 @@
 #define PIEZO_CENTER_PIN A2
 #define HALL_PITCH_PIN A1
 #define FSR_PIN A0
-#define TREBLE_POT_PIN A4
-#define BASS_POT_PIN A5
 
 // ------------------- CONFIG -------------------
 #define PIEZO_THRESHOLD 200
 #define PIEZO_DEBOUNCE_MS 1
 
 #define HALL_MIN_ADC 523.0f
-#define HALL_MAX_ADC 780.0f
+#define HALL_MAX_ADC 570.0f
 #define HALL_SMOOTH_ALPHA 0.20f
 #define HALL_FREQ_MIN_HZ 70.0f
 #define HALL_FREQ_MAX_HZ 250.0f
@@ -34,9 +32,6 @@
 #define REEXCITE_COOLDOWN_MS 110
 #define HALL_REEXCITE_DELTA_THRESHOLD 12.0f
 #define HALL_REEXCITE_DELTA_MAX 180.0f
-
-// EQ smoothing (bass/treble pots)
-#define EQ_SMOOTH_ALPHA 0.15f
 
 // =============== GANGAN SYNTH CLASS ===============
 class AudioSynthGanGan : public AudioStream
@@ -129,29 +124,6 @@ public:
         if (sweepT >= 1.0f && envNorm >= 1.0f)
           active = false;
       }
-
-      // ===== BASS/TREBLE EQ FILTERING =====
-      // Simple shelving EQ using 1st order filters
-      // Bass: Low-frequency boost/cut around 100 Hz
-      // Treble: High-frequency boost/cut around 5 kHz
-
-      float bassFactor = 1.0f + bassGain * 0.5f;  // Maps [-1, 1] to [0.5, 1.5]
-      bassFactor = constrain(bassFactor, 0.2f, 2.0f);  // Clamp to reasonable range
-
-      float trebleFactor = 1.0f + trebleGain * 0.5f;
-      trebleFactor = constrain(trebleFactor, 0.2f, 2.0f);
-
-      // Simple low-pass filter state for bass control (smooth bass changes)
-      const float BASS_CUTOFF = 0.008f;  // ~100 Hz corner frequency
-      bassState += (out * bassFactor - bassState) * BASS_CUTOFF;
-      
-      // Simple high-pass filter state for treble control
-      const float TREBLE_CUTOFF = 0.15f;  // ~5 kHz corner frequency
-      trebleState += (out * trebleFactor - trebleState) * TREBLE_CUTOFF;
-
-      // Blend filtered signals
-      out = bassState * 0.4f + trebleState * 0.6f + out * 0.2f;
-
       if (out > 1.0f)
         out = 1.0f;
       if (out < -1.0f)
@@ -166,8 +138,6 @@ public:
   void setEnvDur(float v) { envDur = max(0.1f, v); }
   void setOutputGain(float v) { outputGain = constrain(v, 0.0f, 1.0f); }
   void setFadeTime(float v) { fadeTime = max(0.01f, v); }
-  void setBassGain(float v) { bassGain = constrain(v, -1.0f, 1.0f); }      // -1 to +1 = -12dB to +12dB
-  void setTrebleGain(float v) { trebleGain = constrain(v, -1.0f, 1.0f); }  // -1 to +1 = -12dB to +12dB
   void noteOn(float velocity = 1.0f)
   {
     sweepT = 0.0f;
@@ -198,8 +168,6 @@ private:
   bool active;
   float sampleRate, twoPI;
   float fmDepthScale, sweepSpreadScale;
-  float bassGain, trebleGain;      // EQ control parameters
-  float bassState, trebleState;    // Filter states for smooth EQ changes
 
 public:
   float envDurBase;
@@ -220,21 +188,11 @@ volatile uint32_t lastHitMs = 0;
 volatile float smoothedHall = 0.0f;
 volatile bool inPeakState = false;
 volatile uint16_t currentFSR = 0;
-volatile float smoothedBass = 0.5f;    // 0.5 = neutral (0-1 range)
-volatile float smoothedTreble = 0.5f;  // 0.5 = neutral (0-1 range)
 
 // =============== CONTINUOUS PLAYBACK ===============
 bool continuousPlayback = false;
 uint32_t lastContinuousTriggerMs = 0;
 const uint32_t CONTINUOUS_TRIGGER_INTERVAL_MS = 400; // trigger every ~600ms
-
-static inline float hallAdcToFreqHz(float hallAdc)
-{
-  float hallNorm = (hallAdc - HALL_MIN_ADC) / (HALL_MAX_ADC - HALL_MIN_ADC);
-  hallNorm = constrain(hallNorm, 0.0f, 1.0f);
-  return HALL_FREQ_MIN_HZ + (HALL_FREQ_MAX_HZ - HALL_FREQ_MIN_HZ) * hallNorm;
-}
-
 // =============== ISR: PIEZO EDGE DETECTION & GANGAN TRIGGER ===============
 void piezoISR()
 {
@@ -242,8 +200,6 @@ void piezoISR()
     uint16_t piezoRaw = analogReadFast(PIEZO_CENTER_PIN);
     uint16_t fsrRaw   = analogReadFast(FSR_PIN);
     float    hallRaw  = analogReadFast(HALL_PITCH_PIN);
-    uint16_t bassRaw  = analogReadFast(BASS_POT_PIN);
-    uint16_t trebleRaw = analogReadFast(TREBLE_POT_PIN);
 
     // Update shared state
     piezoCenterPeak = piezoRaw;
@@ -251,12 +207,6 @@ void piezoISR()
 
     // Hall smoothing for stable pitch modulation.
     smoothedHall = (1.0f - HALL_SMOOTH_ALPHA) * smoothedHall + HALL_SMOOTH_ALPHA * hallRaw;
-
-    // Bass/Treble smoothing (map 0-1023 to -1 to +1 centered at 512)
-    float bassNorm = (bassRaw / 1023.0f) * 2.0f - 1.0f;  // Map to [-1, 1]
-    float trebleNorm = (trebleRaw / 1023.0f) * 2.0f - 1.0f;
-    smoothedBass = (1.0f - EQ_SMOOTH_ALPHA) * smoothedBass + EQ_SMOOTH_ALPHA * bassNorm;
-    smoothedTreble = (1.0f - EQ_SMOOTH_ALPHA) * smoothedTreble + EQ_SMOOTH_ALPHA * trebleNorm;
 
     // If continuous playback is enabled, skip hit detection
     if (continuousPlayback)
@@ -301,12 +251,10 @@ void piezoISR()
         float velocity = (piezoSmooth - PIEZO_THRESHOLD) / (700.0f - PIEZO_THRESHOLD);
         velocity = constrain(velocity, 0.75f, 1.0f);
 
-        float hitHallFreq = hallAdcToFreqHz(smoothedHall);
-        ganGan.setBFreq(hitHallFreq);
         ganGan.noteOn(velocity);
         lastHitMs = now;
         delayMicroseconds(30); // debounce
-        Serial.printf(">>> HIT   vel: %.2f   piezo: %d   hall:%.0f (%.1f Hz)\n", velocity, piezoRaw, smoothedHall, hitHallFreq);
+        Serial.printf(">>> HIT   vel: %.2f   piezo: %d   hall:%.0f\n", velocity, piezoRaw, smoothedHall);
         return;
     }
 
@@ -336,8 +284,6 @@ void setup()
   pinMode(PIEZO_CENTER_PIN, INPUT);
   pinMode(HALL_PITCH_PIN, INPUT);
   pinMode(FSR_PIN, INPUT);
-  pinMode(TREBLE_POT_PIN, INPUT);
-  pinMode(BASS_POT_PIN, INPUT);
 
   // Init state
   piezoCenterPeak = 0;
@@ -367,7 +313,9 @@ void loop()
   // 1. Analog Hall → GanGan Base Frequency (bFreq)
   // Map raw Hall ADC value directly so calibration points stay exact:
   // 523 -> 70 Hz, 780 -> 250 Hz.
-  float hallFreq = hallAdcToFreqHz((float)rawHall);
+  float hallNorm = ((float)rawHall - HALL_MIN_ADC) / (HALL_MAX_ADC - HALL_MIN_ADC);
+  hallNorm = constrain(hallNorm, 0.0f, 1.0f);
+  float hallFreq = HALL_FREQ_MIN_HZ + (HALL_FREQ_MAX_HZ - HALL_FREQ_MIN_HZ) * hallNorm;
   ganGan.setBFreq(hallFreq);
 
   // 1b. Controlled re-excitation: fast Hall movement during active tail gives a small secondary boost.
@@ -392,17 +340,13 @@ void loop()
   float fadeTime = 0.1f + (1.9f * fsrNorm);
   ganGan.setFadeTime(fadeTime);
 
-  // 2b. Bass/Treble EQ from pots
-  ganGan.setBassGain(smoothedBass);
-  ganGan.setTrebleGain(smoothedTreble);
-
   // Debug output (500ms)
   static uint32_t lastDebugMs = 0;
   if (millis() - lastDebugMs >= 500)
   {
     lastDebugMs = millis();
-    Serial.printf("Piezo: %4u | rawHall: %4u | smoothHall: %6.1f | selectedFreq: %6.1f Hz | FSR: %4u | fade: %.2fs | Bass: %+.2f | Treble: %+.2f | Active: %u\n",
-                  piezoCenterPeak, rawHall, smoothedHall, hallFreq, currentFSR, fadeTime, smoothedBass, smoothedTreble, ganGan.isActive() ? 1u : 0u);
+    Serial.printf("Piezo: %4u | rawHall: %4u | smoothHall: %6.1f | selectedFreq: %6.1f Hz | FSR: %4u | fade: %.2fs | Active: %u\n",
+                  piezoCenterPeak, rawHall, smoothedHall, hallFreq, currentFSR, fadeTime, ganGan.isActive() ? 1u : 0u);
   }
 
   // 3. CONTINUOUS PLAYBACK MODE
