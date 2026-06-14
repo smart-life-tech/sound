@@ -5,6 +5,7 @@
     - Analog Hall effect sensor (A1) → Base frequency modulation (pitch control)
    - FSR sensor (A0) → Output gain (sustain/volume control)
    - Piezo sensor (A2) → Trigger noteOn
+   working version
 */
 
 #include <Arduino.h>
