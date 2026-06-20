@@ -197,71 +197,76 @@ const uint32_t CONTINUOUS_TRIGGER_INTERVAL_MS = 400; // trigger every ~600ms
 // =============== ISR: PIEZO EDGE DETECTION & GANGAN TRIGGER ===============
 void piezoISR()
 {
-    uint32_t now = millis();
-    uint16_t piezoRaw = analogReadFast(PIEZO_CENTER_PIN);
-    uint16_t fsrRaw   = analogReadFast(FSR_PIN);
-    float    hallRaw  = analogReadFast(HALL_PITCH_PIN);
+  uint32_t now = millis();
+  uint16_t piezoRaw = analogReadFast(PIEZO_CENTER_PIN);
+  uint16_t fsrRaw = analogReadFast(FSR_PIN);
+  float hallRaw = analogReadFast(HALL_PITCH_PIN);
 
-    // Update shared state
-    piezoCenterPeak = piezoRaw;
-    currentFSR      = fsrRaw;
+  // Update shared state
+  piezoCenterPeak = piezoRaw;
+  currentFSR = fsrRaw;
 
-    // Hall smoothing for stable pitch modulation.
-    smoothedHall = (1.0f - HALL_SMOOTH_ALPHA) * smoothedHall + HALL_SMOOTH_ALPHA * hallRaw;
+  // Hall smoothing for stable pitch modulation.
+  smoothedHall = (1.0f - HALL_SMOOTH_ALPHA) * smoothedHall + HALL_SMOOTH_ALPHA * hallRaw;
 
-    // If continuous playback is enabled, skip hit detection
-    if (continuousPlayback)
-        return;
+  // If continuous playback is enabled, skip hit detection
+  if (continuousPlayback)
+    return;
 
-    // ----------------------------------------------------------------------
-    // NEW: PROPER DRUM TRIGGER LOGIC
-    // ----------------------------------------------------------------------
+  // ----------------------------------------------------------------------
+  // NEW: PROPER DRUM TRIGGER LOGIC
+  // ----------------------------------------------------------------------
 
-    static bool armed = true;
-    static uint32_t lastHitTime = 0;
+  static bool armed = true;
+  static uint32_t lastHitTime = 0;
 
-    const int LOWER_RESET = PIEZO_THRESHOLD * 0.3f; // quiet zone
-    const int LOCKOUT_MS  = 40;                     // ignore bounce/release
+  const int LOWER_RESET = PIEZO_THRESHOLD * 0.3f; // quiet zone
+  const int LOCKOUT_MS = 40;                      // ignore bounce/release
 
-    // 1. Lockout after hit (prevents bounce and release retriggers)
-    if (now - lastHitTime < LOCKOUT_MS) {
-        armed = false;
+  // 1. Lockout after hit (prevents bounce and release retriggers)
+  if (now - lastHitTime < LOCKOUT_MS)
+  {
+    armed = false;
+  }
+
+  // 2. Re-arm only when piezo is fully quiet (below lower threshold)
+  if (!armed)
+  {
+    if (piezoRaw < LOWER_RESET)
+    {
+      armed = true;
     }
-
-    // 2. Re-arm only when piezo is fully quiet (below lower threshold)
-    if (!armed) {
-        if (piezoRaw < LOWER_RESET) {
-            armed = true;
-        } else {
-            return; // still not quiet → ignore noise
-        }
+    else
+    {
+      return; // still not quiet → ignore noise
     }
+  }
 
-    // 3. Detect valid rising hit
-    if (armed && piezoRaw >= PIEZO_THRESHOLD) {
+  // 3. Detect valid rising hit
+  if (armed && piezoRaw >= PIEZO_THRESHOLD)
+  {
 
-        lastHitTime = now;
-        armed = false;
+    lastHitTime = now;
+    armed = false;
 
-        // Velocity smoothing
-        static float piezoSmooth = 0.0f;
-        const float PIEZO_ALPHA = 0.1f;
+    // Velocity smoothing
+    static float piezoSmooth = 0.0f;
+    const float PIEZO_ALPHA = 0.1f;
 
-        piezoSmooth = (1.0f - PIEZO_ALPHA) * piezoSmooth + PIEZO_ALPHA * piezoRaw;
+    piezoSmooth = (1.0f - PIEZO_ALPHA) * piezoSmooth + PIEZO_ALPHA * piezoRaw;
 
-        float velocity = (piezoSmooth - PIEZO_THRESHOLD) / (700.0f - PIEZO_THRESHOLD);
-        velocity = constrain(velocity, 0.75f, 1.0f);
+    float velocity = (piezoSmooth - PIEZO_THRESHOLD) / (700.0f - PIEZO_THRESHOLD);
+    velocity = constrain(velocity, 0.75f, 1.0f);
 
-        ganGan.noteOn(velocity);
-        lastHitMs = now;
-        delayMicroseconds(30); // debounce
-        Serial.printf(">>> HIT   vel: %.2f   piezo: %d   hall:%.0f\n", velocity, piezoRaw, smoothedHall);
-        return;
-    }
+    ganGan.noteOn(velocity);
+    lastHitMs = now;
+    delayMicroseconds(30); // debounce
+    Serial.printf(">>> HIT   vel: %.2f   piezo: %d   hall:%.0f\n", velocity, piezoRaw, smoothedHall);
+    return;
+  }
 
-    // no hit, no action
+  // no hit, no action
 }
-
 
 // =============== SETUP ===============
 void setup()
@@ -358,12 +363,12 @@ void loop()
     if (nowMs - lastContinuousTriggerMs >= CONTINUOUS_TRIGGER_INTERVAL_MS)
     {
       lastContinuousTriggerMs = nowMs;
-      
+
       // Use FSR for velocity control in continuous mode
       float velocity = constrain(currentFSR / 1023.0f, 0.8f, 1.0f);
       ganGan.noteOn(velocity);
-      
-      Serial.printf(">>> CONTINUOUS TRIGGER   vel: %.2f   hall:%.0f Hz   fsr:%d\n", 
+
+      Serial.printf(">>> CONTINUOUS TRIGGER   vel: %.2f   hall:%.0f Hz   fsr:%d\n",
                     velocity, hallFreq, currentFSR);
     }
   }
