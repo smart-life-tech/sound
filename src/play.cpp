@@ -18,6 +18,7 @@
 #define PIEZO_CENTER_PIN A2
 #define HALL_PITCH_PIN A1
 #define FSR_PIN A0
+#define VOLUME_POT_PIN A3
 
 // ------------------- CONFIG -------------------
 #define PIEZO_THRESHOLD 200
@@ -56,12 +57,21 @@ public:
     envDur = envDurBase;
     envAttack = 0.001f;
     outputGain = 0.4f;
+    masterVolume = 1.0f;
     fadeTime = 0.5f;
 
     phaseA = phaseB = phaseSub = 0.0f;
     sweepT = 1.0f;
     envT = 1.0f;
     active = false;
+
+    slapEnv = 0.0f;
+    clickEnv = 0.0f;
+    enableHighMid = false;
+    enableFastHighDecay = false;
+    enableSlap = false;
+    enableClick = false;
+    enableTanh = false;
 
     sampleRate = AUDIO_SAMPLE_RATE_EXACT;
     twoPI = 2.0f * M_PI;
@@ -105,6 +115,34 @@ public:
           phaseSub -= floorf(phaseSub);
         float jitter = sinf(twoPI * phaseSub) * bSubStd;
         float toneB = sinf(twoPI * phaseB) * (bAmp + jitter);
+        float tone = toneB;
+
+        if (enableHighMid)
+        {
+          float highEnv = 1.0f;
+          if (enableFastHighDecay)
+          {
+            highEnv = expf(-25.0f * envT);
+          }
+          float toneH1 = 0.10f * sinf(twoPI * phaseB * 8.0f) * highEnv;
+          float toneH2 = 0.05f * sinf(twoPI * phaseB * 12.0f) * highEnv;
+          tone += toneH1 + toneH2;
+        }
+
+        if (enableSlap || enableClick)
+        {
+          float noise = ((float)random(-32768, 32767)) * (1.0f / 32768.0f);
+          if (enableSlap)
+          {
+            tone += noise * 0.08f * slapEnv;
+          }
+          if (enableClick)
+          {
+            tone += noise * clickEnv * 0.12f;
+          }
+          slapEnv *= 0.995f;
+          clickEnv *= 0.90f;
+        }
 
         envT += invSR;
         float envNorm = envT / envDur;
@@ -121,14 +159,22 @@ public:
         }
         float decayRate = 1.0f / fadeTime;
         float fadeFactor = expf(-decayRate * envT);
-        out = (1.0f + modA) * toneB * env * outputGain * fadeFactor;
+        out = (1.0f + modA) * tone * env * outputGain * fadeFactor;
         if (sweepT >= 1.0f && envNorm >= 1.0f)
           active = false;
       }
-      if (out > 1.0f)
-        out = 1.0f;
-      if (out < -1.0f)
-        out = -1.0f;
+      if (enableTanh)
+      {
+        out = tanhf(out * 1.4f);
+      }
+      else
+      {
+        if (out > 1.0f)
+          out = 1.0f;
+        if (out < -1.0f)
+          out = -1.0f;
+      }
+      out *= masterVolume;
       block->data[i] = (int16_t)(out * 32767.0f);
     }
     transmit(block);
@@ -138,13 +184,26 @@ public:
   void setBFreq(float v) { bFreq = v; }
   void setEnvDur(float v) { envDur = max(0.1f, v); }
   void setOutputGain(float v) { outputGain = constrain(v, 0.0f, 1.0f); }
+  void setMasterVolume(float v) { masterVolume = constrain(v, 0.0f, 1.0f); }
   void setFadeTime(float v) { fadeTime = max(0.01f, v); }
+  void setHighMid(bool v) { enableHighMid = v; }
+  void setFastHighDecay(bool v) { enableFastHighDecay = v; }
+  void setSlap(bool v) { enableSlap = v; }
+  void setClick(bool v) { enableClick = v; }
+  void setTanh(bool v) { enableTanh = v; }
+  bool isHighMidEnabled() const { return enableHighMid; }
+  bool isFastHighDecayEnabled() const { return enableFastHighDecay; }
+  bool isSlapEnabled() const { return enableSlap; }
+  bool isClickEnabled() const { return enableClick; }
+  bool isTanhEnabled() const { return enableTanh; }
   void noteOn(float velocity = 1.0f)
   {
     sweepT = 0.0f;
     envT = 0.0f;
     phaseB += random(0, 100) * 1e-5f;
     outputGain = velocity;
+    slapEnv = 1.0f;
+    clickEnv = 1.0f;
     active = true;
   }
   void reExcite(float amount)
@@ -166,9 +225,12 @@ private:
   float envDur, envAttack, outputGain, fadeTime;
   float phaseA, phaseB, phaseSub;
   float sweepT, envT;
+  float slapEnv, clickEnv;
   bool active;
   float sampleRate, twoPI;
   float fmDepthScale, sweepSpreadScale;
+  float masterVolume;
+  bool enableHighMid, enableFastHighDecay, enableSlap, enableClick, enableTanh;
 
 public:
   float envDurBase;
@@ -290,6 +352,7 @@ void setup()
   pinMode(PIEZO_CENTER_PIN, INPUT);
   pinMode(HALL_PITCH_PIN, INPUT);
   pinMode(FSR_PIN, INPUT);
+  pinMode(VOLUME_POT_PIN, INPUT);
 
   // Init state
   piezoCenterPeak = 0;
@@ -301,6 +364,7 @@ void setup()
   Serial.println("GAN-GAN Setup complete. Ready for hits!");
   Serial.println("Analog Hall → Base Freq | FSR → Output Gain");
   Serial.println("Press 'c' to toggle continuous playback mode");
+  Serial.println("Press 1=HighMid 2=FastHighDecay 3=Slap 4=Click 5=Tanh");
 }
 
 // =============== MAIN LOOP: SENSOR POLLING & REAL-TIME MODULATION ===============
@@ -346,13 +410,18 @@ void loop()
   float fadeTime = 0.1f + (1.9f * fsrNorm);
   ganGan.setFadeTime(fadeTime);
 
+  // 2b. Volume pot → master volume
+  uint16_t volumeRaw = analogReadFast(VOLUME_POT_PIN);
+  float volumeNorm = constrain((float)volumeRaw / 1023.0f, 0.0f, 1.0f);
+  ganGan.setMasterVolume(volumeNorm);
+
   // Debug output (500ms)
   static uint32_t lastDebugMs = 0;
   if (millis() - lastDebugMs >= 500)
   {
     lastDebugMs = millis();
-    Serial.printf("Piezo: %4u | rawHall: %4u | smoothHall: %6.1f | selectedFreq: %6.1f Hz | FSR: %4u | fade: %.2fs | Active: %u\n",
-                  piezoCenterPeak, rawHall, smoothedHall, hallFreq, currentFSR, fadeTime, ganGan.isActive() ? 1u : 0u);
+    Serial.printf("Piezo: %4u | rawHall: %4u | smoothHall: %6.1f | selectedFreq: %6.1f Hz | FSR: %4u | fade: %.2fs | Vol: %.2f | Active: %u\n",
+                  piezoCenterPeak, rawHall, smoothedHall, hallFreq, currentFSR, fadeTime, volumeNorm, ganGan.isActive() ? 1u : 0u);
   }
 
   // 3. CONTINUOUS PLAYBACK MODE
@@ -383,6 +452,31 @@ void loop()
       Serial.printf("Continuous playback: %s\n", continuousPlayback ? "ON" : "OFF");
       if (continuousPlayback)
         Serial.println("  (FSR controls velocity, Hall controls pitch)");
+    }
+    else if (cmd == '1')
+    {
+      ganGan.setHighMid(!ganGan.isHighMidEnabled());
+      Serial.printf("High-mid resonance: %s\n", ganGan.isHighMidEnabled() ? "ON" : "OFF");
+    }
+    else if (cmd == '2')
+    {
+      ganGan.setFastHighDecay(!ganGan.isFastHighDecayEnabled());
+      Serial.printf("Fast high decay: %s\n", ganGan.isFastHighDecayEnabled() ? "ON" : "OFF");
+    }
+    else if (cmd == '3')
+    {
+      ganGan.setSlap(!ganGan.isSlapEnabled());
+      Serial.printf("Slap noise: %s\n", ganGan.isSlapEnabled() ? "ON" : "OFF");
+    }
+    else if (cmd == '4')
+    {
+      ganGan.setClick(!ganGan.isClickEnabled());
+      Serial.printf("Click: %s\n", ganGan.isClickEnabled() ? "ON" : "OFF");
+    }
+    else if (cmd == '5')
+    {
+      ganGan.setTanh(!ganGan.isTanhEnabled());
+      Serial.printf("Tanh saturation: %s\n", ganGan.isTanhEnabled() ? "ON" : "OFF");
     }
   }
 
