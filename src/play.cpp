@@ -3,7 +3,8 @@
    - GanGan synth: FM attack + harmonic body + subharmonic jitter
    - Parameters tuned for expressive drum sound
     - Analog Hall effect sensor (A1) → Base frequency modulation (pitch control)
-   - FSR sensor (A0) → Output gain (sustain/volume control)
+   - FSR sensor (A0) → damping / sustain
+   - Volume pot (A3) → master volume
    - Piezo sensor (A2) → Trigger noteOn
    working version
 */
