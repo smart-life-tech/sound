@@ -20,7 +20,7 @@
 #define HALL_PITCH_PIN A1
 #define FSR_PIN A0
 #define VOLUME_POT_PIN A3
-
+#define BASS_POT A4
 // ------------------- CONFIG -------------------
 #define PIEZO_THRESHOLD 200
 #define PIEZO_DEBOUNCE_MS 1
@@ -354,6 +354,7 @@ void setup()
   pinMode(HALL_PITCH_PIN, INPUT);
   pinMode(FSR_PIN, INPUT);
   pinMode(VOLUME_POT_PIN, INPUT);
+  pinMode(BASS_POT, INPUT);
 
   // Init state
   piezoCenterPeak = 0;
@@ -387,6 +388,12 @@ void loop()
   float hallNorm = ((float)rawHall - HALL_MIN_ADC) / (HALL_MAX_ADC - HALL_MIN_ADC);
   hallNorm = constrain(hallNorm, 0.0f, 1.0f);
   float hallFreq = HALL_FREQ_MIN_HZ + (HALL_FREQ_MAX_HZ - HALL_FREQ_MIN_HZ) * hallNorm;
+
+  // Bass pot at A4 subtracts up to 70 Hz from the selected frequency.
+  uint16_t bassRaw = analogReadFast(BASS_POT);
+  float bassNorm = constrain((float)bassRaw / 1023.0f, 0.0f, 1.0f);
+  float bassReduce = 70.0f * bassNorm;
+  hallFreq = max(0.0f, hallFreq - bassReduce);
   ganGan.setBFreq(hallFreq);
 
   // 1b. Controlled re-excitation: fast Hall movement during active tail gives a small secondary boost.
@@ -421,8 +428,8 @@ void loop()
   if (millis() - lastDebugMs >= 500)
   {
     lastDebugMs = millis();
-    Serial.printf("Piezo: %4u | rawHall: %4u | smoothHall: %6.1f | selectedFreq: %6.1f Hz | FSR: %4u | fade: %.2fs | Vol: %.2f | Active: %u\n",
-                  piezoCenterPeak, rawHall, smoothedHall, hallFreq, currentFSR, fadeTime, volumeNorm, ganGan.isActive() ? 1u : 0u);
+    Serial.printf("Piezo: %4u | rawHall: %4u | smoothHall: %6.1f | selectedFreq: %6.1f Hz | Bass: %4u | red: %4.1f Hz | FSR: %4u | fade: %.2fs | Vol: %.2f | Active: %u\n",
+                  piezoCenterPeak, rawHall, smoothedHall, hallFreq, bassRaw, bassReduce, currentFSR, fadeTime, volumeNorm, ganGan.isActive() ? 1u : 0u);
   }
 
   // 3. CONTINUOUS PLAYBACK MODE
