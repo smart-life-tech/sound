@@ -20,6 +20,7 @@
 #define HALL_PITCH_PIN A1
 #define FSR_PIN A0
 #define VOLUME_POT_PIN A3
+#define TREBLE_POT A4
 #define BASS_POT A5
 // ------------------- CONFIG -------------------
 #define PIEZO_THRESHOLD 200
@@ -389,11 +390,18 @@ void loop()
   hallNorm = constrain(hallNorm, 0.0f, 1.0f);
   float hallFreq = HALL_FREQ_MIN_HZ + (HALL_FREQ_MAX_HZ - HALL_FREQ_MIN_HZ) * hallNorm;
 
-  // Bass pot at A4 subtracts up to 70 Hz from the selected frequency.
+  // Bass pot at A5 subtracts up to 70 Hz from the selected frequency.
+  // Full bass effect is reached at ADC 655, so the pitch never rises when the pot is turned.
   uint16_t bassRaw = analogReadFast(BASS_POT);
-  float bassNorm = constrain((float)bassRaw / 1023.0f, 0.0f, 1.0f);
+  float bassNorm = constrain((float)(bassRaw - 0) / 655.0f, 0.0f, 1.0f);
   float bassReduce = 70.0f * bassNorm;
-  hallFreq = max(0.0f, hallFreq - bassReduce);
+
+  // Treble pot at A4 adds up to 100 Hz to the selected frequency.
+  uint16_t trebleRaw = analogReadFast(TREBLE_POT);
+  float trebleNorm = constrain((float)trebleRaw / 1023.0f, 0.0f, 1.0f);
+  float trebleAdd = 100.0f * trebleNorm;
+
+  hallFreq = max(0.0f, hallFreq - bassReduce + trebleAdd);
   ganGan.setBFreq(hallFreq);
 
   // 1b. Controlled re-excitation: fast Hall movement during active tail gives a small secondary boost.
@@ -428,8 +436,8 @@ void loop()
   if (millis() - lastDebugMs >= 500)
   {
     lastDebugMs = millis();
-    Serial.printf("Piezo: %4u | rawHall: %4u | smoothHall: %6.1f | selectedFreq: %6.1f Hz | Bass: %4u | red: %4.1f Hz | FSR: %4u | fade: %.2fs | Vol: %.2f | Active: %u\n",
-                  piezoCenterPeak, rawHall, smoothedHall, hallFreq, bassRaw, bassReduce, currentFSR, fadeTime, volumeNorm, ganGan.isActive() ? 1u : 0u);
+    Serial.printf("Piezo: %4u | rawHall: %4u | smoothHall: %6.1f | selectedFreq: %6.1f Hz | Bass: %4u | red: %4.1f Hz | Treble: %4u | add: %4.1f Hz | FSR: %4u | fade: %.2fs | Vol: %.2f | Active: %u\n",
+                  piezoCenterPeak, rawHall, smoothedHall, hallFreq, bassRaw, bassReduce, trebleRaw, trebleAdd, currentFSR, fadeTime, volumeNorm, ganGan.isActive() ? 1u : 0u);
   }
 
   // 3. CONTINUOUS PLAYBACK MODE
