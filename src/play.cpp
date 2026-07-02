@@ -28,6 +28,8 @@
 
 #define HALL_MIN_ADC 516.0f
 #define HALL_MAX_ADC 535.0f
+#define HALL_QUANTIZE_THRESHOLD 0.18f // when to snap to discrete steps (0..1 normalized)
+#define HALL_QUANTIZE_STEPS 7         // number of intervals (7 -> 8 notes: do..do)
 #define HALL_SMOOTH_ALPHA 0.20f
 #define HALL_FREQ_MIN_HZ 70.0f
 #define HALL_FREQ_MAX_HZ 250.0f
@@ -385,9 +387,9 @@ void loop()
   prevHall = (float)rawHall;
 
   // 1. Analog Hall → GanGan pitch range
-  // No magnet nearby: use the bass/base range.
-  // Magnet close by: blend toward the treble/high range.
-  float hallNorm = ((float)rawHall - HALL_MIN_ADC) / (HALL_MAX_ADC - HALL_MIN_ADC);
+  // Use smoothed Hall reading for stable transitions. Blend between base and treble ranges.
+  float hallVal = smoothedHall; // smoothed by ISR
+  float hallNorm = ((float)hallVal - HALL_MIN_ADC) / (HALL_MAX_ADC - HALL_MIN_ADC);
   hallNorm = constrain(hallNorm, 0.0f, 1.0f);
 
   uint16_t bassRaw = analogReadFast(BASS_POT);
@@ -400,7 +402,20 @@ void loop()
   float trebleFreq = 150.0f + (250.0f - 150.0f) * trebleNorm;
   trebleFreq = constrain(trebleFreq, 150.0f, 250.0f);
 
-  float hallFreq = baseFreq + hallNorm * (trebleFreq - baseFreq);
+  // If magnet is near (hallNorm somewhat high), optionally quantize into discrete steps
+  float hallFreq;
+  if (hallNorm >= HALL_QUANTIZE_THRESHOLD)
+  {
+    float stepsF = (float)HALL_QUANTIZE_STEPS;
+    float s = roundf(hallNorm * stepsF);
+    float qNorm = s / stepsF;
+    hallFreq = baseFreq + qNorm * (trebleFreq - baseFreq);
+  }
+  else
+  {
+    hallFreq = baseFreq + hallNorm * (trebleFreq - baseFreq);
+  }
+  hallFreq = constrain(hallFreq, 20.0f, 20000.0f);
   ganGan.setBFreq(hallFreq);
 
   // 1b. Controlled re-excitation: fast Hall movement during active tail gives a small secondary boost.
