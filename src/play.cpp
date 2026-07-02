@@ -23,11 +23,11 @@
 #define TREBLE_POT A4
 #define BASS_POT A5
 // ------------------- CONFIG -------------------
-#define PIEZO_THRESHOLD 200
+#define PIEZO_THRESHOLD 190
 #define PIEZO_DEBOUNCE_MS 1
 
-#define HALL_MIN_ADC 523.0f
-#define HALL_MAX_ADC 540.0f
+#define HALL_MIN_ADC 516.0f
+#define HALL_MAX_ADC 535.0f
 #define HALL_SMOOTH_ALPHA 0.20f
 #define HALL_FREQ_MIN_HZ 70.0f
 #define HALL_FREQ_MAX_HZ 250.0f
