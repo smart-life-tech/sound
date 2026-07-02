@@ -20,7 +20,7 @@
 #define HALL_PITCH_PIN A1
 #define FSR_PIN A0
 #define VOLUME_POT_PIN A3
-#define BASS_POT A4
+#define BASS_POT A5
 // ------------------- CONFIG -------------------
 #define PIEZO_THRESHOLD 200
 #define PIEZO_DEBOUNCE_MS 1
