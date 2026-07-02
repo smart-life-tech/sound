@@ -392,11 +392,13 @@ void loop()
 
   uint16_t bassRaw = analogReadFast(BASS_POT);
   float bassNorm = constrain((float)bassRaw / 1023.0f, 0.0f, 1.0f);
-  float baseFreq = HALL_FREQ_MIN_HZ + (110.0f - HALL_FREQ_MIN_HZ) * bassNorm;
+  float baseFreq = 70.0f + (110.0f - 70.0f) * bassNorm;
+  baseFreq = constrain(baseFreq, 70.0f, 110.0f);
 
   uint16_t trebleRaw = analogReadFast(TREBLE_POT);
   float trebleNorm = constrain((float)trebleRaw / 1023.0f, 0.0f, 1.0f);
-  float trebleFreq = 150.0f + (HALL_FREQ_MAX_HZ - 150.0f) * trebleNorm;
+  float trebleFreq = 150.0f + (250.0f - 150.0f) * trebleNorm;
+  trebleFreq = constrain(trebleFreq, 150.0f, 250.0f);
 
   float hallFreq = baseFreq + hallNorm * (trebleFreq - baseFreq);
   ganGan.setBFreq(hallFreq);
