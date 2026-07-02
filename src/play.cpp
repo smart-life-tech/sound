@@ -355,6 +355,7 @@ void setup()
   pinMode(HALL_PITCH_PIN, INPUT);
   pinMode(FSR_PIN, INPUT);
   pinMode(VOLUME_POT_PIN, INPUT);
+  pinMode(TREBLE_POT, INPUT);
   pinMode(BASS_POT, INPUT);
 
   // Init state
@@ -383,25 +384,21 @@ void loop()
   const float hallDelta = fabsf((float)rawHall - prevHall);
   prevHall = (float)rawHall;
 
-  // 1. Analog Hall → GanGan Base Frequency (bFreq)
-  // Map raw Hall ADC value directly so calibration points stay exact:
-  // 523 -> 70 Hz, 780 -> 250 Hz.
+  // 1. Analog Hall → GanGan pitch range
+  // No magnet nearby: use the bass/base range.
+  // Magnet close by: blend toward the treble/high range.
   float hallNorm = ((float)rawHall - HALL_MIN_ADC) / (HALL_MAX_ADC - HALL_MIN_ADC);
   hallNorm = constrain(hallNorm, 0.0f, 1.0f);
-  float hallFreq = HALL_FREQ_MIN_HZ + (HALL_FREQ_MAX_HZ - HALL_FREQ_MIN_HZ) * hallNorm;
 
-  // Bass pot at A5 subtracts up to 70 Hz from the selected frequency.
-  // Full bass effect is reached at ADC 655, so the pitch never rises when the pot is turned.
   uint16_t bassRaw = analogReadFast(BASS_POT);
-  float bassNorm = constrain((float)(bassRaw - 0) / 655.0f, 0.0f, 1.0f);
-  float bassReduce = 70.0f * bassNorm;
+  float bassNorm = constrain((float)bassRaw / 1023.0f, 0.0f, 1.0f);
+  float baseFreq = HALL_FREQ_MIN_HZ + (110.0f - HALL_FREQ_MIN_HZ) * bassNorm;
 
-  // Treble pot at A4 adds up to 100 Hz to the selected frequency.
   uint16_t trebleRaw = analogReadFast(TREBLE_POT);
   float trebleNorm = constrain((float)trebleRaw / 1023.0f, 0.0f, 1.0f);
-  float trebleAdd = 100.0f * trebleNorm;
+  float trebleFreq = 150.0f + (HALL_FREQ_MAX_HZ - 150.0f) * trebleNorm;
 
-  hallFreq = max(0.0f, hallFreq - bassReduce + trebleAdd);
+  float hallFreq = baseFreq + hallNorm * (trebleFreq - baseFreq);
   ganGan.setBFreq(hallFreq);
 
   // 1b. Controlled re-excitation: fast Hall movement during active tail gives a small secondary boost.
@@ -436,8 +433,8 @@ void loop()
   if (millis() - lastDebugMs >= 500)
   {
     lastDebugMs = millis();
-    Serial.printf("Piezo: %4u | rawHall: %4u | smoothHall: %6.1f | selectedFreq: %6.1f Hz | Bass: %4u | red: %4.1f Hz | Treble: %4u | add: %4.1f Hz | FSR: %4u | fade: %.2fs | Vol: %.2f | Active: %u\n",
-                  piezoCenterPeak, rawHall, smoothedHall, hallFreq, bassRaw, bassReduce, trebleRaw, trebleAdd, currentFSR, fadeTime, volumeNorm, ganGan.isActive() ? 1u : 0u);
+    Serial.printf("Piezo: %4u | rawHall: %4u | smoothHall: %6.1f | selectedFreq: %6.1f Hz | Bass: %4u | base: %4.1f Hz | Treble: %4u | high: %4.1f Hz | FSR: %4u | fade: %.2fs | Vol: %.2f | Active: %u\n",
+                  piezoCenterPeak, rawHall, smoothedHall, hallFreq, bassRaw, baseFreq, trebleRaw, trebleFreq, currentFSR, fadeTime, volumeNorm, ganGan.isActive() ? 1u : 0u);
   }
 
   // 3. CONTINUOUS PLAYBACK MODE
