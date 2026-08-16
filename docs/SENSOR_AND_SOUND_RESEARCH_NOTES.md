@@ -26,28 +26,33 @@ and pads" section):
 3. A trigger algorithm (threshold, peak-hold, retrigger/mask timing) that turns the
    conditioned signal into a note-on event with a velocity value.
 
-The `genesis` firmware currently implements only the third stage (a fixed threshold
-edge trigger, `PIEZO_THRESHOLD`), and is missing the second stage entirely. This is the
-direct cause of the reported problem: the piezo can physically sense force, but the
-signal path never conditions that force into a stable amplitude value before it reaches
-the ADC. Adopting the second stage from the standard drum-trigger architecture is
-sufficient to resolve the amplitude/velocity issue without changing sensor hardware.
+The piezo module in use already includes a diode clamp that conditions its output into
+the Teensy's 0–3.3 V ADC range. That clamp addresses signal protection only — it
+prevents over/under-voltage at the ADC pin — and is not the same function as the second
+stage described above. The firmware still implements only the third stage (a fixed
+threshold edge trigger, `PIEZO_THRESHOLD`), and the signal presented to the ADC is
+still the raw, unrectified, ringing piezo waveform, only voltage-limited rather than
+shaped into a stable peak value. This is the direct cause of the reported problem: the
+piezo can physically sense force, and the existing module keeps that signal within a
+safe voltage range, but nothing in the current signal path converts a strike into a
+single, stable amplitude reading. Adding the missing peak/envelope stage is sufficient
+to resolve the amplitude/velocity issue without changing sensor hardware.
 
 ### 1.2 Recommended architecture change (conditioning stage)
 
-Insert an analog peak/envelope stage between the piezo and the ADC input:
-piezo → protection clamp (back-to-back diodes to the ADC's 0–3.3 V rail) → envelope
-follower (rectifying diode into a small RC, time constant on the order of 1–2 ms) →
-ADC. This is the same function performed inside a commercial drum module's front end
-and should be built as a small board between the piezo and the Teensy, not solved in
-firmware alone.
+Add an envelope/peak-hold stage after the existing clamp module and before the ADC
+input: piezo → existing diode-clamp module (0–3.3 V protection, already in place) →
+envelope follower (rectifying diode into a small RC, time constant on the order of
+1–2 ms) → ADC. The existing module should be retained for protection; the addition is
+a small peak-detector stage, not a replacement of what is already built.
 
 ### 1.3 Sensor element itself
 
-The physical piezo disc does not need to be replaced to fix amplitude sensing; the
-missing piece is the conditioning stage above. If greater dynamic range is still
-required after adding conditioning, two escalation paths exist, in order of how closely
-they follow standard drum-trigger practice:
+The physical piezo disc does not need to be replaced to fix amplitude sensing, and the
+existing clamp module does not need to be removed; the missing piece is the envelope
+stage described in §1.2. If greater dynamic range is still required after adding that
+stage, two escalation paths exist, in order of how closely they follow standard
+drum-trigger practice:
 
 1. **Foam/rubber-backed piezo trigger element**, of the type used under mesh drum
    heads, for better mechanical decoupling and cleaner decay than a bare piezo disc
@@ -71,9 +76,9 @@ microphone** coupled directly to the striking surface, not a free-standing air
 microphone.
 
 ### For the mechanical engineer
-- Provide a small conditioning PCB/daughterboard footprint between the piezo lead and
-  the Teensy ADC pin (diode clamp + rectifier + RC), rather than wiring the piezo
-  directly to the ADC.
+- Add a small envelope/peak-hold stage (rectifying diode + RC) in line after the
+  existing diode-clamp module and before the Teensy ADC pin; the existing clamp module
+  is retained as-is for protection.
 - If further dynamic range is needed later, reserve mounting space for a MEMS
   accelerometer on the same striking surface as a secondary sensor.
 
@@ -257,7 +262,7 @@ of the six zones the sensitivity margin the current single-sensor implementation
 
 | Owner | Action |
 |---|---|
-| Mechanical engineer | Provide footprint for a piezo conditioning board (diode clamp + envelope RC) between the piezo and the Teensy ADC. |
+| Mechanical engineer | Add an envelope/peak-hold stage (rectifying diode + RC) after the existing diode-clamp module and before the Teensy ADC; retain the existing clamp module for protection. |
 | Mechanical engineer | Reserve mounting space for six A1301/A1302-class linear Hall sensors and additional magnets, with attention to magnet spacing and air gap. |
 | Sound engineer | Provide a SuperCollider (or equivalent) patch exposing independent `pitchHz` and `brightness` parameters, per §3.2. |
 | Self (firmware) | Add piezo envelope reading in place of raw instantaneous threshold sampling. |
