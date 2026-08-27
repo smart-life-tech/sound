@@ -57,10 +57,12 @@ drum-trigger practice:
 1. **Foam/rubber-backed piezo trigger element**, of the type used under mesh drum
    heads, for better mechanical decoupling and cleaner decay than a bare piezo disc
    taped to a surface.
-2. **Add a low-g MEMS accelerometer** on the same striking surface as a secondary
-   sensor (e.g., Analog Devices ADXL345-class part) for a more linear force signal.
-   This requires an additional ADC/communication channel and is a larger firmware
-   change than option 1.
+2. **Use a low-g MEMS accelerometer** on the striking face itself, such as an
+   ADXL335 or ADXL345-class part, because the face absorbs much of the impact energy
+   before it reaches the piezo. In this architecture, the accelerometer is the better
+   primary hit/vibration sensor for light taps and subtle motion, while the piezo can
+   remain as a secondary or backup trigger. This requires an additional ADC or
+   communication channel and is a larger firmware change than option 1.
 
 ### 1.4 On using an open-air microphone
 
@@ -79,13 +81,18 @@ microphone.
 - Add a small envelope/peak-hold stage (rectifying diode + RC) in line after the
   existing diode-clamp module and before the Teensy ADC pin; the existing clamp module
   is retained as-is for protection.
-- If further dynamic range is needed later, reserve mounting space for a MEMS
-  accelerometer on the same striking surface as a secondary sensor.
+- If the face is absorbing most of the hit force before it reaches the piezo, reserve
+  mounting space for a low-g MEMS accelerometer such as ADXL335 or ADXL345-class parts
+  directly on the striking face as the primary trigger sensor.
+- Favor a compact, mechanically isolated mounting approach so the accelerometer reads
+  true surface motion without excessive resonance or vibration leakage.
 
 ### For self (firmware)
 - Read the conditioned (enveloped) signal as a peak value per hit rather than relying
   on a single instantaneous threshold crossing; retain the current debounce/retrigger
   logic on top of that peak.
+- If the accelerometer is added, calibrate it as the primary hit/vibration channel and
+  use the piezo as a secondary confirmation or fallback trigger path when needed.
 
 ---
 

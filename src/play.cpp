@@ -3,9 +3,10 @@
    - GanGan synth: FM attack + harmonic body + subharmonic jitter
    - Parameters tuned for expressive drum sound
     - Analog Hall effect sensor (A1) → Base frequency modulation (pitch control)
-   - FSR sensor (A0) → damping / sustain
+   - FSR sensor (A0) → sustain (fade time), with hysteresis mute/cutoff
    - Volume pot (A3) → master volume
-   - Piezo sensor (A2) → Trigger noteOn
+   - Treble pot (A4) → brightness (filter cutoff), decoupled from pitch
+   - Piezo sensor (A2) → Trigger noteOn (peak-hold velocity capture)
     LATEST working version
 */
 
@@ -82,6 +83,9 @@ public:
 
     fmDepthScale = 0.65f;
     sweepSpreadScale = 0.60f;
+
+    lpState = 0.0f;
+    lpCoeff = 1.0f; // pass-through until setBrightness() is called
   }
 
   virtual void update(void) override
@@ -178,6 +182,9 @@ public:
         if (out < -1.0f)
           out = -1.0f;
       }
+      // Brightness: one-pole low-pass, cutoff independent of bFreq (pitch).
+      lpState += lpCoeff * (out - lpState);
+      out = lpState;
       out *= masterVolume;
       block->data[i] = (int16_t)(out * 32767.0f);
     }
@@ -186,6 +193,13 @@ public:
   }
 
   void setBFreq(float v) { bFreq = v; }
+  // Brightness (0..1) maps to a fixed cutoff-frequency range, decoupled from pitch (bFreq).
+  void setBrightness(float norm)
+  {
+    norm = constrain(norm, 0.0f, 1.0f);
+    float cutoffHz = 800.0f + norm * (8000.0f - 800.0f);
+    lpCoeff = 1.0f - expf(-twoPI * cutoffHz / sampleRate);
+  }
   void setEnvDur(float v) { envDur = max(0.1f, v); }
   void setOutputGain(float v) { outputGain = constrain(v, 0.0f, 1.0f); }
   void setMasterVolume(float v) { masterVolume = constrain(v, 0.0f, 1.0f); }
@@ -235,6 +249,7 @@ private:
   float fmDepthScale, sweepSpreadScale;
   float masterVolume;
   bool enableHighMid, enableFastHighDecay, enableSlap, enableClick, enableTanh;
+  float lpState, lpCoeff;
 
 public:
   float envDurBase;
@@ -315,19 +330,30 @@ void piezoISR()
     lastHitTime = now;
     armed = false;
 
-    // Velocity smoothing
-    static float piezoSmooth = 0.0f;
-    const float PIEZO_ALPHA = 0.1f;
+    // Peak-hold capture: sample piezo for a short window to catch the true
+    // strike peak instead of a single instantaneous ADC read (see
+    // docs/SENSOR_AND_SOUND_RESEARCH_NOTES.md §1).
+    uint16_t peak = piezoRaw;
+    uint32_t captureStart = micros();
+    const uint32_t PEAK_CAPTURE_US = 1500; // ~1.5ms peak-hold window
+    while (micros() - captureStart < PEAK_CAPTURE_US)
+    {
+      uint16_t sample = analogReadFast(PIEZO_CENTER_PIN);
+      if (sample > peak)
+        peak = sample;
+    }
+    piezoCenterPeak = peak;
 
-    piezoSmooth = (1.0f - PIEZO_ALPHA) * piezoSmooth + PIEZO_ALPHA * piezoRaw;
-
-    float velocity = (piezoSmooth - PIEZO_THRESHOLD) / (700.0f - PIEZO_THRESHOLD);
-    velocity = constrain(velocity, 0.75f, 1.0f);
+    // Velocity now scales across the full peak range instead of being
+    // clamped to a narrow band, so hit amplitude actually varies.
+    float velocity = (float)(peak - PIEZO_THRESHOLD) / (float)(1023 - PIEZO_THRESHOLD);
+    velocity = constrain(velocity, 0.0f, 1.0f);
+    velocity = 0.15f + velocity * 0.85f; // audible floor, full dynamic range above it
 
     ganGan.noteOn(velocity);
     lastHitMs = now;
     delayMicroseconds(30); // debounce
-    Serial.printf(">>> HIT   vel: %.2f   piezo: %d   hall:%.0f\n", velocity, piezoRaw, smoothedHall);
+    Serial.printf(">>> HIT   vel: %.2f   peak: %d   piezo: %d   hall:%.0f\n", velocity, peak, piezoRaw, smoothedHall);
     return;
   }
 
@@ -397,10 +423,12 @@ void loop()
   float baseFreq = 70.0f + (110.0f - 70.0f) * bassNorm;
   baseFreq = constrain(baseFreq, 70.0f, 110.0f);
 
+  // Treble pot now drives brightness (spectral tone) only, fully decoupled
+  // from pitch (see docs/SENSOR_AND_SOUND_RESEARCH_NOTES.md §3). It no longer
+  // contributes to the Hall pitch range.
   uint16_t trebleRaw = analogReadFast(TREBLE_POT);
   float trebleNorm = constrain((float)trebleRaw / 1023.0f, 0.0f, 1.0f);
-  float trebleFreq = 150.0f + (250.0f - 150.0f) * trebleNorm;
-  trebleFreq = constrain(trebleFreq, 150.0f, 250.0f);
+  ganGan.setBrightness(trebleNorm);
 
   // If magnet is near (hallNorm somewhat high), optionally quantize into discrete steps
   float hallFreq;
@@ -409,11 +437,11 @@ void loop()
     float stepsF = (float)HALL_QUANTIZE_STEPS;
     float s = roundf(hallNorm * stepsF);
     float qNorm = s / stepsF;
-    hallFreq = baseFreq + qNorm * (trebleFreq - baseFreq);
+    hallFreq = baseFreq + qNorm * (HALL_FREQ_MAX_HZ - baseFreq);
   }
   else
   {
-    hallFreq = baseFreq + hallNorm * (trebleFreq - baseFreq);
+    hallFreq = baseFreq + hallNorm * (HALL_FREQ_MAX_HZ - baseFreq);
   }
   hallFreq = constrain(hallFreq, 20.0f, 20000.0f);
   ganGan.setBFreq(hallFreq);
@@ -433,11 +461,19 @@ void loop()
     lastReexciteMs = nowMs;
   }
 
-  // 2. FSR → Damping (controls fade-out time after hit)
-  // Map FSR [0, 1023] → fade time [0.1s, 2.0s]
-  // No pressure = quick decay (0.1s), hard squeeze = long sustain (2.0s)
+  // 2. FSR → sustain (continuous fade time) with a hysteresis-based mute/cutoff
+  // on top, so the cutoff feels sharp and repeatable regardless of the FSR's
+  // analog non-linearity (see docs/SENSOR_AND_SOUND_RESEARCH_NOTES.md §2).
   float fsrNorm = currentFSR / 1023.0f;
-  float fadeTime = 0.1f + (1.9f * fsrNorm);
+  static bool fsrMuted = false;
+  const float FSR_MUTE_LOW = 0.05f;  // drop below this to engage mute
+  const float FSR_MUTE_HIGH = 0.10f; // rise above this to release mute
+  if (fsrNorm <= FSR_MUTE_LOW)
+    fsrMuted = true;
+  else if (fsrNorm >= FSR_MUTE_HIGH)
+    fsrMuted = false;
+
+  float fadeTime = fsrMuted ? 0.03f : (0.1f + (1.9f * fsrNorm));
   ganGan.setFadeTime(fadeTime);
 
   // 2b. Volume pot → master volume
@@ -450,8 +486,8 @@ void loop()
   if (millis() - lastDebugMs >= 500)
   {
     lastDebugMs = millis();
-    Serial.printf("Piezo: %4u | rawHall: %4u | smoothHall: %6.1f | selectedFreq: %6.1f Hz | Bass: %4u | base: %4.1f Hz | Treble: %4u | high: %4.1f Hz | FSR: %4u | fade: %.2fs | Vol: %.2f | Active: %u\n",
-                  piezoCenterPeak, rawHall, smoothedHall, hallFreq, bassRaw, baseFreq, trebleRaw, trebleFreq, currentFSR, fadeTime, volumeNorm, ganGan.isActive() ? 1u : 0u);
+    Serial.printf("Piezo: %4u | rawHall: %4u | smoothHall: %6.1f | selectedFreq: %6.1f Hz | Bass: %4u | base: %4.1f Hz | Treble: %4u | brightness: %.2f | FSR: %4u | fade: %.2fs | muted: %u | Vol: %.2f | Active: %u\n",
+                  piezoCenterPeak, rawHall, smoothedHall, hallFreq, bassRaw, baseFreq, trebleRaw, trebleNorm, currentFSR, fadeTime, fsrMuted ? 1u : 0u, volumeNorm, ganGan.isActive() ? 1u : 0u);
   }
 
   // 3. CONTINUOUS PLAYBACK MODE
