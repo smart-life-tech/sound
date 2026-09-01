@@ -25,6 +25,20 @@
 #define ANALOG_RESOLUTION_BITS 10
 #define ADC_MAX 1024
 
+// ------------------- HIT TEST / ADXL SELECTION -------------------
+// Set this to true to enable hit-test logging by default.
+// Use the serial console to toggle it at runtime with: h = toggle, 3 = ADXL334, 4 = ADXL345
+constexpr bool ENABLE_HIT_TEST_DEFAULT = true;
+
+enum class AdxlModel
+{
+  ADXL334,
+  ADXL345
+};
+
+bool gHitTestEnabled = ENABLE_HIT_TEST_DEFAULT;
+AdxlModel gSelectedAdxlModel = AdxlModel::ADXL345;
+
 #define PIEZO_THRESHOLD 250
 #define PIEZO_DEBOUNCE_MS 2
 
@@ -214,6 +228,64 @@ float noiseAmpFromVelocity(float velNorm)
   float base = 0.2f + velNorm * 0.5f; // 0.2..0.7
   return clampf(base, 0.0f, 1.0f);
 }
+
+const char *adxlModelName(AdxlModel model)
+{
+  switch (model)
+  {
+    case AdxlModel::ADXL334:
+      return "ADXL334";
+    case AdxlModel::ADXL345:
+    default:
+      return "ADXL345";
+  }
+}
+
+float adxlSensitivityScale(AdxlModel model)
+{
+  // The ADXL345 is more sensitive than ADXL334, so map the same force to a slightly
+  // higher effective hit-intensity level for the debug audio output meter.
+  return (model == AdxlModel::ADXL334) ? 1.00f : 1.30f;
+}
+
+float audioHitIntensity(uint16_t peak, uint16_t fsr)
+{
+  float vel = velocityNorm(peak);
+  float fsrN = clampf((float)fsr / (float)ADC_MAX, 0.0f, 1.0f);
+  float level = (vel * 0.8f) + (fsrN * 0.2f);
+  return clampf(level * adxlSensitivityScale(gSelectedAdxlModel), 0.0f, 1.0f);
+}
+
+void handleSerialHitTestCommand()
+{
+  if (Serial.available() == 0)
+    return;
+
+  char cmd = Serial.read();
+  while (Serial.available())
+    Serial.read();
+
+  switch (cmd)
+  {
+    case 'h':
+    case 'H':
+      gHitTestEnabled = !gHitTestEnabled;
+      Serial.print("Hit test: ");
+      Serial.println(gHitTestEnabled ? "ON" : "OFF");
+      break;
+
+    case '3':
+      gSelectedAdxlModel = AdxlModel::ADXL334;
+      Serial.println("ADXL model set to ADXL334");
+      break;
+
+    case '4':
+      gSelectedAdxlModel = AdxlModel::ADXL345;
+      Serial.println("ADXL model set to ADXL345");
+      break;
+  }
+}
+
 // Controls tone & decay of KS via external lowpass filter
 void setKSDamping(uint16_t fsr, float velNorm)
 {
@@ -333,10 +405,26 @@ void triggerDrum(uint16_t peakC, float flex, uint16_t fsr)
 
   // Flex-based pitch mapping (use the passed smoothed flex value)
   int flexIdx = flexToIndex7(flex);
-  Serial.print(" NoteIndex:");
-  Serial.println(flexIdx);
-  Serial.print(" flex read:");
-  Serial.println(flex);
+  float hitLevel = audioHitIntensity(peak, fsr);
+
+  if (gHitTestEnabled)
+  {
+    Serial.print("[HIT_TEST] model=");
+    Serial.print(adxlModelName(gSelectedAdxlModel));
+    Serial.print(" peak=");
+    Serial.print(peak);
+    Serial.print(" vel=");
+    Serial.print(velN, 3);
+    Serial.print(" intensity=");
+    Serial.print(hitLevel, 3);
+    Serial.print(" fsr=");
+    Serial.print(fsr);
+    Serial.print(" noteIndex=");
+    Serial.print(flexIdx);
+    Serial.print(" flex=");
+    Serial.print(flex, 2);
+    Serial.println();
+  }
 
   // Map flex (smoothed value passed in) to frequency using a gentle nonlinear curve
   float clamped = constrain(flex, FLEX_MIN, FLEX_MAX);
@@ -345,8 +433,6 @@ void triggerDrum(uint16_t peakC, float flex, uint16_t fsr)
   float curveExp = 0.65f; // tweakable: <1 -> more high pitches, >1 -> more low pitches
   float curved = powf(norm, curveExp);
   float noteFreq = minFreq + curved * (maxFreq - minFreq);
-  Serial.print(" NoteFreq:");
-  Serial.println(noteFreq);
   // FSR -> damping / decay only
   // float damping = fsrToDamping(fsr, velN);
 
@@ -560,11 +646,18 @@ void setup()
     // piezoTimer.begin(piezoISR, PIEZO_SAMPLE_INTERVAL_US);
   }
   Serial.println("FM + KS Drum Synth Online.");
+  Serial.print("Hit test default: ");
+  Serial.println(gHitTestEnabled ? "ON" : "OFF");
+  Serial.print("Selected ADXL model: ");
+  Serial.println(adxlModelName(gSelectedAdxlModel));
+  Serial.println("Serial controls: h = toggle hit test, 3 = ADXL334, 4 = ADXL345");
 }
 
 // ------------------- LOOP -------------------
 void loop()
 {
+  handleSerialHitTestCommand();
+
   // Update pitch envelope at low rate
   if (!test)
   {

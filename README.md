@@ -26,6 +26,11 @@ This project implements a hybrid drum synthesizer on the Teensy 4.x microcontrol
   - Piezo Rim: A3
   - Analog Hall: A1
   - FSR: A2
+- **ADXL test note**:
+  - ADXL334 and ADXL345 are selected in firmware as a software calibration profile only.
+  - The physical GPIO remains fixed to the chosen ADC input.
+  - Use one ADXL on one ADC pin at a time; do not connect two ADXLs to the same analog input.
+  - For a test bench, the same GPIO may be reused for the same model, but the code does not remap the pin automatically.
 - **Power Supply**: Appropriate for Teensy and sensors
 
 ## Software Dependencies

@@ -17,12 +17,22 @@
 #define analogReadFast(pin) analogRead(pin)
 
 // ------------------- PINS -------------------
+// GPIO usage note:
+// - A0 = FSR
+// - A1 = Hall / pitch input
+// - A2 = piezo hit sensor
+// - A3/A4/A5 = analog pots
+// - ADXL334/ADXL345 testing must use ONE ADXL on ONE ADC input at a time.
+//   The software selector only changes sensitivity calibration; it does NOT change
+//   the physical GPIO mapping. Same model on the same GPIO is fine, but do not wire
+//   two ADXL parts to the same ADC channel at once.
 #define PIEZO_CENTER_PIN A2
 #define HALL_PITCH_PIN A1
 #define FSR_PIN A0
 #define VOLUME_POT_PIN A3
 #define TREBLE_POT A4
 #define BASS_POT A5
+#define ADXL_TEST_PIN A6
 // ------------------- CONFIG -------------------
 #define PIEZO_THRESHOLD 190
 #define PIEZO_DEBOUNCE_MS 1
@@ -271,6 +281,73 @@ volatile float smoothedHall = 0.0f;
 volatile bool inPeakState = false;
 volatile uint16_t currentFSR = 0;
 
+// ADXL test toggle: software-only intensity calibration selector.
+// Same GPIO can be reused for the same model, but the physical input still stays fixed.
+enum class AdxlModel
+{
+  ADXL334,
+  ADXL345
+};
+
+bool gHitTestEnabled = true;
+AdxlModel gSelectedAdxlModel = AdxlModel::ADXL345;
+
+const char *adxlModelName(AdxlModel model)
+{
+  switch (model)
+  {
+    case AdxlModel::ADXL334:
+      return "ADXL334";
+    case AdxlModel::ADXL345:
+    default:
+      return "ADXL345";
+  }
+}
+
+float adxlSensitivityScale(AdxlModel model)
+{
+  // ADXL345 is typically more sensitive; use a slight calibration offset for debug output
+  return (model == AdxlModel::ADXL334) ? 1.00f : 1.30f;
+}
+
+float audioHitIntensity(uint16_t peak, uint16_t fsr)
+{
+  float vel = constrain((float)(peak - PIEZO_THRESHOLD) / (float)(1023 - PIEZO_THRESHOLD), 0.0f, 1.0f);
+  float fsrNorm = constrain((float)fsr / 1023.0f, 0.0f, 1.0f);
+  float level = (vel * 0.8f) + (fsrNorm * 0.2f);
+  return constrain(level * adxlSensitivityScale(gSelectedAdxlModel), 0.0f, 1.0f);
+}
+
+void handleSerialHitTestCommand()
+{
+  if (Serial.available() == 0)
+    return;
+
+  char cmd = Serial.read();
+  while (Serial.available())
+    Serial.read();
+
+  switch (cmd)
+  {
+    case 'h':
+    case 'H':
+      gHitTestEnabled = !gHitTestEnabled;
+      Serial.print("Hit test: ");
+      Serial.println(gHitTestEnabled ? "ON" : "OFF");
+      break;
+
+    case '3':
+      gSelectedAdxlModel = AdxlModel::ADXL334;
+      Serial.println("ADXL model set to ADXL334");
+      break;
+
+    case '4':
+      gSelectedAdxlModel = AdxlModel::ADXL345;
+      Serial.println("ADXL model set to ADXL345");
+      break;
+  }
+}
+
 // =============== CONTINUOUS PLAYBACK ===============
 bool continuousPlayback = false;
 uint32_t lastContinuousTriggerMs = 0;
@@ -350,6 +427,18 @@ void piezoISR()
     velocity = constrain(velocity, 0.0f, 1.0f);
     velocity = 0.15f + velocity * 0.85f; // audible floor, full dynamic range above it
 
+    float hitIntensity = audioHitIntensity(peak, fsrRaw);
+    if (gHitTestEnabled)
+    {
+      Serial.printf("[HIT_TEST] model=%s peak=%u vel=%.3f intensity=%.3f fsr=%u hall=%.0f\n",
+                    adxlModelName(gSelectedAdxlModel),
+                    peak,
+                    velocity,
+                    hitIntensity,
+                    fsrRaw,
+                    smoothedHall);
+    }
+
     ganGan.noteOn(velocity);
     lastHitMs = now;
     delayMicroseconds(30); // debounce
@@ -394,9 +483,11 @@ void setup()
   inPeakState = false;
 
   Serial.println("GAN-GAN Setup complete. Ready for hits!");
+  Serial.println("GPIO map: A0=FSR, A1=Hall, A2=Piezo, A3/A4/A5=Pots.");
+  Serial.println("ADXL GPIO note: one ADXL on one ADC pin at a time; software selector 3/4 only changes calibration, not the physical pin.");
   Serial.println("Analog Hall → Base Freq | FSR → Output Gain");
   Serial.println("Press 'c' to toggle continuous playback mode");
-  Serial.println("Press 1=HighMid 2=FastHighDecay 3=Slap 4=Click 5=Tanh");
+  Serial.println("Press 'h' to toggle hit test, '3' ADXL334, '4' ADXL345, '1'=HighMid 2=FastHighDecay 3=Slap 4=Click 5=Tanh");
 }
 
 // =============== MAIN LOOP: SENSOR POLLING & REAL-TIME MODULATION ===============
@@ -509,6 +600,7 @@ void loop()
   }
 
   // 4. SERIAL COMMANDS
+  handleSerialHitTestCommand();
   if (Serial.available())
   {
     char cmd = Serial.read();
@@ -519,6 +611,21 @@ void loop()
       if (continuousPlayback)
         Serial.println("  (FSR controls velocity, Hall controls pitch)");
     }
+    else if (cmd == 'h' || cmd == 'H')
+    {
+      gHitTestEnabled = !gHitTestEnabled;
+      Serial.printf("Hit test: %s\n", gHitTestEnabled ? "ON" : "OFF");
+    }
+    else if (cmd == '3')
+    {
+      gSelectedAdxlModel = AdxlModel::ADXL334;
+      Serial.println("ADXL model set to ADXL334");
+    }
+    else if (cmd == '4')
+    {
+      gSelectedAdxlModel = AdxlModel::ADXL345;
+      Serial.println("ADXL model set to ADXL345");
+    }
     else if (cmd == '1')
     {
       ganGan.setHighMid(!ganGan.isHighMidEnabled());
@@ -528,16 +635,6 @@ void loop()
     {
       ganGan.setFastHighDecay(!ganGan.isFastHighDecayEnabled());
       Serial.printf("Fast high decay: %s\n", ganGan.isFastHighDecayEnabled() ? "ON" : "OFF");
-    }
-    else if (cmd == '3')
-    {
-      ganGan.setSlap(!ganGan.isSlapEnabled());
-      Serial.printf("Slap noise: %s\n", ganGan.isSlapEnabled() ? "ON" : "OFF");
-    }
-    else if (cmd == '4')
-    {
-      ganGan.setClick(!ganGan.isClickEnabled());
-      Serial.printf("Click: %s\n", ganGan.isClickEnabled() ? "ON" : "OFF");
     }
     else if (cmd == '5')
     {
