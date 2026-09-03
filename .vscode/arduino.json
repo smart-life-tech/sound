@@ -1,0 +1,5 @@
+{
+    "board": "arduino:avr:uno",
+    "sketch": "test\\adxl345_uno_hit_test\\adxl345_uno_hit_test.ino",
+    "port": "COM17"
+}

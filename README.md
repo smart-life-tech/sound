@@ -54,6 +54,50 @@ This project implements a hybrid drum synthesizer on the Teensy 4.x microcontrol
 
 4. **Audio Output**: Connect headphones or speakers to the Audio Shield's output.
 
+## Arduino Uno ADXL345 Hit Testing
+
+The extracted Uno test sketch is located at `test/adxl345_uno_hit_test/adxl345_uno_hit_test.ino`.
+It does not use the Teensy audio code. It reads an ADXL345 over I2C, calibrates the stationary
+baseline, detects dynamic acceleration hits, and prints labeled CSV data for later analysis.
+
+### Uno Wiring
+
+| ADXL345 pin | Arduino Uno | Notes |
+|---|---|---|
+| VCC | 3.3V | Use 3.3V power unless the breakout explicitly supports 5V |
+| GND | GND | Common ground required |
+| SDA | A4 / SDA | I2C data |
+| SCL | A5 / SCL | I2C clock |
+| CS | 3.3V | Required to select I2C mode |
+| SD0 | GND | I2C address `0x53`; use 3.3V for `0x1D` and change the define |
+| INT1, INT2 | Not connected | This sketch polls the sensor |
+
+Only one ADXL345 is connected in this test. `INT1` and `INT2` are not GPIO inputs in the
+current sketch. The ADXL345 model/protocol is selected by code configuration; the Uno I2C
+pins remain A4/A5.
+
+### Uno Serial Data Collection
+
+Upload the sketch and open Serial Monitor at `115200` baud. After startup, keep the sensor still
+while baseline calibration runs. Each sample is printed as:
+
+`sample_ms,sample_number,x_raw,y_raw,z_raw,x_g,y_g,z_g,dynamic_g,hit,threshold_g`
+
+The `hit` column is a label (`1` for a detected hit, `0` otherwise), so the CSV can be saved
+for threshold tuning or later classifier training. Lines beginning with `#` are status records,
+not CSV samples.
+
+Serial commands:
+
+- `c` recalibrates the stationary baseline; do this after mounting the sensor.
+- `+` raises the hit threshold by `0.05g`.
+- `-` lowers the hit threshold by `0.05g`.
+- `h` toggles extra hit event messages.
+- `r` prints the current threshold and baseline.
+
+The sketch starts with a `0.35g` dynamic acceleration threshold and an `80ms` hit cooldown.
+These values are initial test settings, not final trained values.
+
 ## How It Works
 
 ### Sensor Processing
