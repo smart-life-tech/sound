@@ -88,7 +88,7 @@ INT2           (optional)        Interrupt output
 ### Recalibrate for a New Orientation
 The hit detector measures movement relative to the device's stationary gravity vector, so it works regardless of which direction the device is pointing.
 
-Automatic recalibration is enabled. When the device is held still in a new orientation for 10 seconds, the firmware averages that stationary gravity vector and adopts it as the new baseline. It only does this when the new orientation differs from the previous baseline by at least 0.15g, so leaving the device still does not repeatedly recalibrate it.
+Automatic recalibration is enabled. When the device is held still in a new orientation for 10 seconds, the firmware averages that stationary gravity vector and adopts it as the new baseline. It tolerates normal sensor noise up to 0.12g between samples and only does this when the new orientation differs from the previous baseline by at least 0.15g, so leaving the device still does not repeatedly recalibrate it.
 
 1. Hold the device still in the desired orientation.
 2. Keep it still for the full 10-second calibration. No serial command is required.

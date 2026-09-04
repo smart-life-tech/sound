@@ -368,7 +368,7 @@ const uint32_t ADXL_RECALIBRATION_TIME_MS = 10000;
 const float ADXL_FILTER_ALPHA = 0.25f;
 const float ADXL_REARM_RATIO = 0.45f;
 const float ADXL_HIT_MAX_G = 3.0f;
-const float ADXL_STATIONARY_DELTA_G = 0.03f;
+const float ADXL_STATIONARY_DELTA_G = 0.12f;
 const float ADXL_AUTO_ORIENTATION_CHANGE_G = 0.15f;
 
 uint32_t adxlStableSinceMs = 0;
@@ -633,7 +633,12 @@ void adxlAutoCalibrateOrientation(uint32_t nowMs)
   }
 
   if (adxlStableSinceMs == 0)
+  {
     adxlStableSinceMs = nowMs;
+    Serial.printf("ADXL345 new stationary orientation detected (change %.2fg); waiting %lu seconds.\n",
+                  orientationChange,
+                  (unsigned long)(ADXL_RECALIBRATION_TIME_MS / 1000));
+  }
   adxlStableSumX += adxlRawGX;
   adxlStableSumY += adxlRawGY;
   adxlStableSumZ += adxlRawGZ;
