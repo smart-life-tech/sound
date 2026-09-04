@@ -369,7 +369,7 @@ const float ADXL_FILTER_ALPHA = 0.25f;
 const float ADXL_REARM_RATIO = 0.45f;
 const float ADXL_HIT_MAX_G = 3.0f;
 const float ADXL_STATIONARY_DELTA_G = 0.12f;
-const float ADXL_AUTO_ORIENTATION_CHANGE_G = 0.15f;
+const float ADXL_AUTO_ORIENTATION_CHANGE_DEG = 90.0f;
 
 uint32_t adxlStableSinceMs = 0;
 uint32_t adxlStableSamples = 0;
@@ -620,11 +620,28 @@ void adxlAutoCalibrateOrientation(uint32_t nowMs)
   float orientationChange = sqrt(baselineDx * baselineDx +
                                  baselineDy * baselineDy +
                                  baselineDz * baselineDz);
-  if (orientationChange >= ADXL_AUTO_ORIENTATION_CHANGE_G)
+  float currentMagnitude = sqrt(adxlRawGX * adxlRawGX +
+                                adxlRawGY * adxlRawGY +
+                                adxlRawGZ * adxlRawGZ);
+  float baselineMagnitude = sqrt(adxlBaselineX * adxlBaselineX +
+                                 adxlBaselineY * adxlBaselineY +
+                                 adxlBaselineZ * adxlBaselineZ);
+  float orientationAngleDeg = 0.0f;
+  if (adxlBaselineReady && currentMagnitude > 0.01f && baselineMagnitude > 0.01f)
+  {
+    float cosine = (adxlRawGX * adxlBaselineX +
+                    adxlRawGY * adxlBaselineY +
+                    adxlRawGZ * adxlBaselineZ) /
+                   (currentMagnitude * baselineMagnitude);
+    cosine = constrain(cosine, -1.0f, 1.0f);
+    orientationAngleDeg = acosf(cosine) * (180.0f / M_PI);
+  }
+
+  if (orientationAngleDeg >= ADXL_AUTO_ORIENTATION_CHANGE_DEG)
     adxlOrientationPending = true;
 
   bool stable = sampleDelta <= ADXL_STATIONARY_DELTA_G &&
-                (!adxlBaselineReady || orientationChange >= ADXL_AUTO_ORIENTATION_CHANGE_G);
+                (!adxlBaselineReady || orientationAngleDeg >= ADXL_AUTO_ORIENTATION_CHANGE_DEG);
 
   if (!stable)
   {
@@ -639,8 +656,9 @@ void adxlAutoCalibrateOrientation(uint32_t nowMs)
   if (adxlStableSinceMs == 0)
   {
     adxlStableSinceMs = nowMs;
-    Serial.printf("ADXL345 new stationary orientation detected (change %.2fg); waiting %lu seconds.\n",
-                  orientationChange,
+    Serial.printf("ADXL345 new stationary orientation detected (angle %.1f deg, change %.2fg); waiting %lu seconds.\n",
+            orientationAngleDeg,
+            orientationChange,
                   (unsigned long)(ADXL_RECALIBRATION_TIME_MS / 1000));
   }
   adxlStableSumX += adxlRawGX;
