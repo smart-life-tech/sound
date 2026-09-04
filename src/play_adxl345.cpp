@@ -363,6 +363,7 @@ const uint32_t ADXL_SAMPLE_INTERVAL_MS = 5;
 const uint32_t ADXL_HIT_COOLDOWN_MS = 80;
 const float ADXL_FILTER_ALPHA = 0.25f;
 const float ADXL_REARM_RATIO = 0.45f;
+const float ADXL_HIT_MAX_G = 3.0f;
 
 const char *adxlModelName(AdxlModel model)
 {
@@ -388,6 +389,13 @@ float audioHitIntensity(uint16_t peak, uint16_t fsr)
   float fsrNorm = constrain((float)fsr / 1023.0f, 0.0f, 1.0f);
   float level = (vel * 0.8f) + (fsrNorm * 0.2f);
   return constrain(level * adxlSensitivityScale(gSelectedAdxlModel), 0.0f, 1.0f);
+}
+
+float adxlHitIntensity(float peakG)
+{
+  // Linear mapping: threshold is silence and 3 g is full hit amplitude.
+  float intensity = (peakG - gAdxlThreshold) / (ADXL_HIT_MAX_G - gAdxlThreshold);
+  return constrain(intensity, 0.0f, 1.0f);
 }
 
 // =============== ADXL345 I2C/SPI COMMUNICATION ===============
@@ -645,7 +653,13 @@ void piezoISR()
   // 2. Re-arm only when piezo is fully quiet
   if (!armed)
   {
-    if (piezoRaw < LOWER_RESET && adxl_magnitude <= gAdxlThreshold * ADXL_REARM_RATIO)
+    bool piezoReady = (piezoRaw < LOWER_RESET);
+    bool adxlReady = (adxl_magnitude <= gAdxlThreshold * ADXL_REARM_RATIO);
+    #if ADXL_ENABLED && !ADXL_DUAL_INPUT
+    if (adxlReady)
+    #else
+    if (piezoReady && adxlReady)
+    #endif
     {
       armed = true;
     }
@@ -674,6 +688,17 @@ void piezoISR()
     lastHitTime = now;
     armed = false;
 
+    #if ADXL_ENABLED
+    float initialAdxlIntensity = adxlHitIntensity(adxl_magnitude);
+    if (gHitTestEnabled)
+    {
+      Serial.printf("[HIT_START] accel=%.2fg threshold=%.2fg mapped_volume=%.3f\n",
+                    adxl_magnitude,
+                    gAdxlThreshold,
+                    initialAdxlIntensity);
+    }
+    #endif
+
     // Peak-hold capture for piezo
     uint16_t peak = piezoRaw;
     uint32_t captureStart = micros();
@@ -686,11 +711,17 @@ void piezoISR()
     }
     piezoCenterPeak = peak;
 
-    float velocity = (float)(peak - PIEZO_THRESHOLD) / (float)(1023 - PIEZO_THRESHOLD);
+    float velocity;
+    float hitIntensity;
+    #if ADXL_ENABLED && !ADXL_DUAL_INPUT
+    velocity = adxlHitIntensity(adxl_magnitude);
+    hitIntensity = velocity;
+    #else
+    velocity = (float)(peak - PIEZO_THRESHOLD) / (float)(1023 - PIEZO_THRESHOLD);
     velocity = constrain(velocity, 0.0f, 1.0f);
     velocity = 0.15f + velocity * 0.85f;
-
-    float hitIntensity = audioHitIntensity(peak, fsrRaw);
+    hitIntensity = audioHitIntensity(peak, fsrRaw);
+    #endif
     if (gHitTestEnabled)
     {
       #if ADXL_ENABLED
@@ -716,7 +747,7 @@ void piezoISR()
     ganGan.noteOn(velocity);
     lastHitMs = now;
     delayMicroseconds(30);
-    Serial.printf(">>> HIT   vel: %.2f   peak: %d   piezo: %d   hall:%.0f\n", velocity, peak, piezoRaw, smoothedHall);
+    Serial.printf(">>> HIT   vel: %.2f   accel: %.2fg   peak: %d   piezo: %d   hall:%.0f\n", velocity, adxl_magnitude, peak, piezoRaw, smoothedHall);
     return;
   }
 }
