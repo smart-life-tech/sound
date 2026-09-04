@@ -368,7 +368,7 @@ const uint32_t ADXL_RECALIBRATION_TIME_MS = 10000;
 const float ADXL_FILTER_ALPHA = 0.25f;
 const float ADXL_REARM_RATIO = 0.45f;
 const float ADXL_HIT_MAX_G = 3.0f;
-const float ADXL_STATIONARY_DELTA_G = 0.12f;
+const float ADXL_STATIONARY_DELTA_G = 0.35f;
 const float ADXL_AUTO_ORIENTATION_CHANGE_DEG = 90.0f;
 const float ADXL_ORIENTATION_HYSTERESIS_DEG = 5.0f;
 
