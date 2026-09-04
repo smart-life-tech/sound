@@ -41,7 +41,7 @@
 #define ADXL_USE_SPI      0    // Set to 1 for SPI, 0 for I2C (mutually exclusive)
 
 // Choose ONE integration mode at compile time:
-#define ADXL_DUAL_INPUT   1    // Set to 1 to use piezo AND ADXL345, 0 for ADXL345 only
+#define ADXL_DUAL_INPUT   0    // Set to 1 to use piezo AND ADXL345, 0 for ADXL345 only
 #define ADXL_ENABLED      1    // Set to 1 to enable ADXL345, 0 to disable entirely
 
 // ADXL345 I2C Address:
@@ -58,6 +58,7 @@
 #define ADXL_REG_DEVID       0x00
 #define ADXL_REG_POWER_CTL   0x2D
 #define ADXL_REG_DATA_FORMAT 0x31
+#define ADXL_REG_BW_RATE     0x2C
 #define ADXL_REG_FIFO_CTL    0x38
 #define ADXL_REG_X0          0x32  // X LSB
 #define ADXL_REG_X1          0x33  // X MSB
@@ -71,7 +72,8 @@
 
 // ADXL345 Configuration values:
 #define ADXL_POWER_CTL_MEASURE 0x08  // Enable measurement mode (bit 3)
-#define ADXL_DATA_FORMAT_FULL  0x0B  // 13-bit full resolution, ±16g range
+#define ADXL_DATA_FORMAT_FULL  0x0B  // 13-bit full resolution, +/-16g range
+#define ADXL_RATE_200HZ        0x0C
 
 // ------------------- PINS -------------------
 // Analog sensors (ADC):
@@ -350,7 +352,17 @@ enum class AdxlModel
 
 bool gHitTestEnabled = true;
 AdxlModel gSelectedAdxlModel = AdxlModel::ADXL345;
-float gAdxlThreshold = 0.5f;  // Acceleration threshold (g's) for hit detection
+float gAdxlThreshold = 0.35f; // Acceleration threshold (g's) for hit detection
+float adxlBaselineX = 0.0f;
+float adxlBaselineY = 0.0f;
+float adxlBaselineZ = 0.0f;
+float adxlFilteredDynamic = 0.0f;
+bool adxlBaselineReady = false;
+
+const uint32_t ADXL_SAMPLE_INTERVAL_MS = 5;
+const uint32_t ADXL_HIT_COOLDOWN_MS = 80;
+const float ADXL_FILTER_ALPHA = 0.25f;
+const float ADXL_REARM_RATIO = 0.45f;
 
 const char *adxlModelName(AdxlModel model)
 {
@@ -403,7 +415,8 @@ void adxlReadAccel()
   Wire.beginTransmission(ADXL_I2C_ADDRESS);
   Wire.write(ADXL_REG_X0);
   Wire.endTransmission(false);
-  Wire.requestFrom((int)ADXL_I2C_ADDRESS, 6, true);
+  if (Wire.requestFrom((int)ADXL_I2C_ADDRESS, 6, true) != 6)
+    return;
   
   int16_t x = Wire.read() | (Wire.read() << 8);
   int16_t y = Wire.read() | (Wire.read() << 8);
@@ -413,11 +426,16 @@ void adxlReadAccel()
   adxl_y = y;
   adxl_z = z;
   
-  // Convert to g's and compute magnitude (256 LSB/g in ±16g mode)
+  // Convert baseline-relative acceleration to g's (256 LSB/g in full-resolution mode).
   float gx = x / 256.0f;
   float gy = y / 256.0f;
   float gz = z / 256.0f;
-  adxl_magnitude = sqrt(gx*gx + gy*gy + gz*gz);
+  float dx = gx - adxlBaselineX;
+  float dy = gy - adxlBaselineY;
+  float dz = gz - adxlBaselineZ;
+  float dynamicMagnitude = sqrt(dx * dx + dy * dy + dz * dz);
+  adxlFilteredDynamic += ADXL_FILTER_ALPHA * (dynamicMagnitude - adxlFilteredDynamic);
+  adxl_magnitude = adxlBaselineReady ? adxlFilteredDynamic : dynamicMagnitude;
 }
 
 #endif
@@ -497,6 +515,7 @@ void adxlInit()
   
   // Configure data format: 13-bit full resolution, ±16g
   adxlWriteRegister(ADXL_REG_DATA_FORMAT, ADXL_DATA_FORMAT_FULL);
+  adxlWriteRegister(ADXL_REG_BW_RATE, ADXL_RATE_200HZ);
   delay(1);
   
   // Enable measurement mode
@@ -505,6 +524,31 @@ void adxlInit()
   
   // Disable all interrupts initially
   adxlWriteRegister(ADXL_REG_INT_ENABLE, 0x00);
+
+  Serial.println("Keep the ADXL345 still: calibrating baseline...");
+  int32_t sumX = 0;
+  int32_t sumY = 0;
+  int32_t sumZ = 0;
+  uint16_t sampleCount = 0;
+  uint32_t calibrationStart = millis();
+  while (millis() - calibrationStart < 1500)
+  {
+    adxlReadAccel();
+    sumX += adxl_x;
+    sumY += adxl_y;
+    sumZ += adxl_z;
+    ++sampleCount;
+    delay(ADXL_SAMPLE_INTERVAL_MS);
+  }
+  if (sampleCount > 0)
+  {
+    adxlBaselineX = (float)sumX / (float)sampleCount / 256.0f;
+    adxlBaselineY = (float)sumY / (float)sampleCount / 256.0f;
+    adxlBaselineZ = (float)sumZ / (float)sampleCount / 256.0f;
+    adxlFilteredDynamic = 0.0f;
+    adxlBaselineReady = true;
+    Serial.printf("ADXL345 baseline calibrated from %u samples.\n", sampleCount);
+  }
   
   Serial.println("ADXL345 initialized successfully.");
 }
@@ -571,9 +615,15 @@ void piezoISR()
   // Hall smoothing for stable pitch modulation
   smoothedHall = (1.0f - HALL_SMOOTH_ALPHA) * smoothedHall + HALL_SMOOTH_ALPHA * hallRaw;
 
-  // Read ADXL345 if enabled
+  static uint32_t lastAdxlSampleMs = 0;
+
+  // Read ADXL345 at the same 200 Hz rate as the validated hit-test sketch.
   #if ADXL_ENABLED
-  adxlReadAccel();
+  if (now - lastAdxlSampleMs >= ADXL_SAMPLE_INTERVAL_MS)
+  {
+    lastAdxlSampleMs = now;
+    adxlReadAccel();
+  }
   #endif
 
   // If continuous playback is enabled, skip hit detection
@@ -584,7 +634,7 @@ void piezoISR()
   static uint32_t lastHitTime = 0;
 
   const int LOWER_RESET = PIEZO_THRESHOLD * 0.3f;
-  const int LOCKOUT_MS = 40;
+  const int LOCKOUT_MS = ADXL_HIT_COOLDOWN_MS;
 
   // 1. Lockout after hit
   if (now - lastHitTime < LOCKOUT_MS)
@@ -595,7 +645,7 @@ void piezoISR()
   // 2. Re-arm only when piezo is fully quiet
   if (!armed)
   {
-    if (piezoRaw < LOWER_RESET)
+    if (piezoRaw < LOWER_RESET && adxl_magnitude <= gAdxlThreshold * ADXL_REARM_RATIO)
     {
       armed = true;
     }

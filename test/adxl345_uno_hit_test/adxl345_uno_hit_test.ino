@@ -26,21 +26,25 @@
 // Set to 0x1D when SD0 is connected to 3.3V.
 #define ADXL345_ADDRESS 0x53
 
-#define ADXL345_REG_DEVID       0x00
-#define ADXL345_REG_POWER_CTL   0x2D
+#define ADXL345_REG_DEVID 0x00
+#define ADXL345_REG_POWER_CTL 0x2D
 #define ADXL345_REG_DATA_FORMAT 0x31
-#define ADXL345_REG_BW_RATE     0x2C
-#define ADXL345_REG_DATAX0      0x32
+#define ADXL345_REG_BW_RATE 0x2C
+#define ADXL345_REG_DATAX0 0x32
 
-#define ADXL345_DEVICE_ID       0xE5
-#define ADXL345_MEASURE_MODE    0x08
-#define ADXL345_FULL_RES_16G    0x0B
-#define ADXL345_RATE_200HZ      0x0C
+#define ADXL345_DEVICE_ID 0xE5
+#define ADXL345_MEASURE_MODE 0x08
+#define ADXL345_FULL_RES_16G 0x0B
+#define ADXL345_RATE_200HZ 0x0C
 
 const unsigned long SAMPLE_INTERVAL_MS = 5;
 const unsigned long HIT_COOLDOWN_MS = 80;
 const unsigned long CALIBRATION_TIME_MS = 1500;
 const float LSB_PER_G = 256.0f;
+const unsigned long HIT_PEAK_WINDOW_MS = 35;
+const float FILTER_ALPHA = 0.25f;
+const float REARM_RATIO = 0.45f;
+const float HIT_MAX_G = 3.0f;
 
 bool reportHits = true;
 float hitThresholdG = 0.35f;
@@ -51,241 +55,302 @@ unsigned long lastSampleMs = 0;
 unsigned long lastHitMs = 0;
 unsigned long sampleNumber = 0;
 bool printSerial = true;
+bool hitArmed = true;
+bool peakWindowActive = false;
+float filteredDynamicG = 0.0f;
+float hitPeakG = 0.0f;
+unsigned long peakWindowEndMs = 0;
 struct AccelSample
 {
-  int16_t x;
-  int16_t y;
-  int16_t z;
+    int16_t x;
+    int16_t y;
+    int16_t z;
 };
 
 void writeRegister(byte reg, byte value)
 {
-  Wire.beginTransmission(ADXL345_ADDRESS);
-  Wire.write(reg);
-  Wire.write(value);
-  byte status = Wire.endTransmission();
-  if (status != 0)
-  {
-    Serial.print(F("I2C_WRITE_ERROR,"));
-    Serial.println(status);
-  }
+    Wire.beginTransmission(ADXL345_ADDRESS);
+    Wire.write(reg);
+    Wire.write(value);
+    byte status = Wire.endTransmission();
+    if (status != 0)
+    {
+        Serial.print(F("I2C_WRITE_ERROR,"));
+        Serial.println(status);
+    }
 }
 
 int readRegisters(byte startReg, byte *buffer, byte length)
 {
-  Wire.beginTransmission(ADXL345_ADDRESS);
-  Wire.write(startReg);
-  if (Wire.endTransmission(false) != 0)
-    return 0;
+    Wire.beginTransmission(ADXL345_ADDRESS);
+    Wire.write(startReg);
+    if (Wire.endTransmission(false) != 0)
+        return 0;
 
-  byte received = Wire.requestFrom(ADXL345_ADDRESS, length);
-  if (received != length)
-    return 0;
+    byte received = Wire.requestFrom(ADXL345_ADDRESS, length);
+    if (received != length)
+        return 0;
 
-  for (byte i = 0; i < length; ++i)
-    buffer[i] = Wire.read();
+    for (byte i = 0; i < length; ++i)
+        buffer[i] = Wire.read();
 
-  return 1;
+    return 1;
 }
 
 byte readRegister(byte reg)
 {
-  byte value = 0;
-  if (!readRegisters(reg, &value, 1))
-    Serial.println(F("I2C_READ_ERROR"));
-  return value;
+    byte value = 0;
+    if (!readRegisters(reg, &value, 1))
+        Serial.println(F("I2C_READ_ERROR"));
+    return value;
 }
 
 bool readAcceleration(AccelSample &sample)
 {
-  byte data[6];
-  if (!readRegisters(ADXL345_REG_DATAX0, data, sizeof(data)))
-    return false;
+    byte data[6];
+    if (!readRegisters(ADXL345_REG_DATAX0, data, sizeof(data)))
+        return false;
 
-  sample.x = (int16_t)((uint16_t)data[0] | ((uint16_t)data[1] << 8));
-  sample.y = (int16_t)((uint16_t)data[2] | ((uint16_t)data[3] << 8));
-  sample.z = (int16_t)((uint16_t)data[4] | ((uint16_t)data[5] << 8));
-  return true;
+    sample.x = (int16_t)((uint16_t)data[0] | ((uint16_t)data[1] << 8));
+    sample.y = (int16_t)((uint16_t)data[2] | ((uint16_t)data[3] << 8));
+    sample.z = (int16_t)((uint16_t)data[4] | ((uint16_t)data[5] << 8));
+    return true;
 }
 
 void printSettings()
 {
-  Serial.print(F("# hit_reporting="));
-  Serial.println(reportHits ? F("ON") : F("OFF"));
-  Serial.print(F("# threshold_g="));
-  Serial.println(hitThresholdG, 3);
-  Serial.print(F("# baseline_g="));
-  Serial.print(baselineX / LSB_PER_G, 3);
-  Serial.print(',');
-  Serial.print(baselineY / LSB_PER_G, 3);
-  Serial.print(',');
-  Serial.println(baselineZ / LSB_PER_G, 3);
+    Serial.print(F("# hit_reporting="));
+    Serial.println(reportHits ? F("ON") : F("OFF"));
+    Serial.print(F("# threshold_g="));
+    Serial.println(hitThresholdG, 3);
+    Serial.print(F("# intensity_mapping="));
+    Serial.print(hitThresholdG, 2);
+    Serial.println(F("g_to_0,_3.00g_to_127"));
+    Serial.print(F("# baseline_g="));
+    Serial.print(baselineX / LSB_PER_G, 3);
+    Serial.print(',');
+    Serial.print(baselineY / LSB_PER_G, 3);
+    Serial.print(',');
+    Serial.println(baselineZ / LSB_PER_G, 3);
 }
 
 void calibrateBaseline()
 {
-  Serial.println(F("# Keep the ADXL345 still: calibrating baseline..."));
+    Serial.println(F("# Keep the ADXL345 still: calibrating baseline..."));
 
-  long sumX = 0;
-  long sumY = 0;
-  long sumZ = 0;
-  unsigned int count = 0;
-  unsigned long startMs = millis();
+    long sumX = 0;
+    long sumY = 0;
+    long sumZ = 0;
+    unsigned int count = 0;
+    unsigned long startMs = millis();
 
-  while (millis() - startMs < CALIBRATION_TIME_MS)
-  {
-    AccelSample sample;
-    if (readAcceleration(sample))
+    while (millis() - startMs < CALIBRATION_TIME_MS)
     {
-      sumX += sample.x;
-      sumY += sample.y;
-      sumZ += sample.z;
-      ++count;
+        AccelSample sample;
+        if (readAcceleration(sample))
+        {
+            sumX += sample.x;
+            sumY += sample.y;
+            sumZ += sample.z;
+            ++count;
+        }
+        delay(SAMPLE_INTERVAL_MS);
     }
-    delay(SAMPLE_INTERVAL_MS);
-  }
 
-  if (count == 0)
-  {
-    Serial.println(F("# Calibration failed: no I2C samples."));
-    return;
-  }
+    if (count == 0)
+    {
+        Serial.println(F("# Calibration failed: no I2C samples."));
+        return;
+    }
 
-  baselineX = (float)sumX / count;
-  baselineY = (float)sumY / count;
-  baselineZ = (float)sumZ / count;
-  Serial.print(F("# Calibration complete, samples="));
-  Serial.println(count);
-  printSettings();
+    baselineX = (float)sumX / count;
+    baselineY = (float)sumY / count;
+    baselineZ = (float)sumZ / count;
+    filteredDynamicG = 0.0f;
+    hitPeakG = 0.0f;
+    hitArmed = true;
+    peakWindowActive = false;
+    Serial.print(F("# Calibration complete, samples="));
+    Serial.println(count);
+    printSettings();
 }
 
 void handleCommands()
 {
-  while (Serial.available() > 0)
-  {
-    char command = Serial.read();
-    if (command == 'h' || command == 'H')
+    while (Serial.available() > 0)
     {
-      reportHits = !reportHits;
-      printSettings();
+        char command = Serial.read();
+        if (command == 'h' || command == 'H')
+        {
+            reportHits = !reportHits;
+            printSettings();
+        }
+        else if (command == 'c' || command == 'C')
+        {
+            calibrateBaseline();
+        }
+        else if (command == '+')
+        {
+            hitThresholdG = min(2.0f, hitThresholdG + 0.05f);
+            printSettings();
+        }
+        else if (command == '-')
+        {
+            hitThresholdG = max(0.05f, hitThresholdG - 0.05f);
+            printSettings();
+        }
+        else if (command == 'r' || command == 'R')
+        {
+            printSettings();
+        }
+        else if (command == 't' || command == 'T')
+        {
+            printSerial = true;
+        }
+        else if (command == 's' || command == 'S')
+        {
+            printSerial = false;
+        }
     }
-    else if (command == 'c' || command == 'C')
-    {
-      calibrateBaseline();
-    }
-    else if (command == '+')
-    {
-      hitThresholdG = min(2.0f, hitThresholdG + 0.05f);
-      printSettings();
-    }
-    else if (command == '-')
-    {
-      hitThresholdG = max(0.05f, hitThresholdG - 0.05f);
-      printSettings();
-    }
-    else if (command == 'r' || command == 'R')
-    {
-      printSettings();
-    }
-    else if (command == 't' || command == 'T')
-    {
-      printSerial = true;
-    }
-    else if (command == 's' || command == 'S')
-    {
-      printSerial = false;
-    }
-  }
 }
 
 void printCsvHeader()
 {
-  Serial.println(F("sample_ms,sample_number,x_raw,y_raw,z_raw,x_g,y_g,z_g,dynamic_g,hit,threshold_g"));
+    Serial.println(F("sample_ms,sample_number,x_raw,y_raw,z_raw,x_g,y_g,z_g,dynamic_g,peak_g,intensity_0_1,intensity_0_127,hit,threshold_g"));
+}
+
+float mapHitIntensity(float peakG)
+{
+    // Threshold is silence and 3g is full-scale test intensity.
+    float normalized = (peakG - hitThresholdG) / (HIT_MAX_G - hitThresholdG);
+    normalized = constrain(normalized, 0.0f, 1.0f);
+    return sqrt(normalized);
+}
+
+void finishPeakWindow(unsigned long nowMs)
+{
+    if (!peakWindowActive || nowMs < peakWindowEndMs)
+        return;
+
+    float intensity = mapHitIntensity(hitPeakG);
+    unsigned int intensity127 = (unsigned int)(intensity * 127.0f + 0.5f);
+    if (reportHits)
+    {
+        Serial.print(F("# HIT,peak_g="));
+        Serial.print(hitPeakG, 3);
+        Serial.print(F(",intensity_0_1="));
+        Serial.print(intensity, 3);
+        Serial.print(F(",intensity_0_127="));
+        Serial.println(intensity127);
+    }
+    peakWindowActive = false;
 }
 
 void setup()
 {
-  Serial.begin(115200);
-  Wire.begin();
-  Wire.setClock(400000L);
+    Serial.begin(115200);
+    Wire.begin();
+    Wire.setClock(400000L);
 
-  delay(100);
-  byte deviceId = readRegister(ADXL345_REG_DEVID);
-  Serial.print(F("# ADXL345_device_id=0x"));
-  if (deviceId < 0x10)
-    Serial.print('0');
-  Serial.println(deviceId, HEX);
+    delay(100);
+    byte deviceId = readRegister(ADXL345_REG_DEVID);
+    Serial.print(F("# ADXL345_device_id=0x"));
+    if (deviceId < 0x10)
+        Serial.print('0');
+    Serial.println(deviceId, HEX);
 
-  if (deviceId != ADXL345_DEVICE_ID)
-  {
-    Serial.println(F("# ERROR: expected device ID 0xE5. Check power, SDA/SCL, CS, SD0, and address."));
-    while (true)
-      handleCommands();
-  }
+    if (deviceId != ADXL345_DEVICE_ID)
+    {
+        Serial.println(F("# ERROR: expected device ID 0xE5. Check power, SDA/SCL, CS, SD0, and address."));
+        while (true)
+            handleCommands();
+    }
 
-  writeRegister(ADXL345_REG_POWER_CTL, 0x00);
-  writeRegister(ADXL345_REG_DATA_FORMAT, ADXL345_FULL_RES_16G);
-  writeRegister(ADXL345_REG_BW_RATE, ADXL345_RATE_200HZ);
-  writeRegister(ADXL345_REG_POWER_CTL, ADXL345_MEASURE_MODE);
-  delay(20);
+    writeRegister(ADXL345_REG_POWER_CTL, 0x00);
+    writeRegister(ADXL345_REG_DATA_FORMAT, ADXL345_FULL_RES_16G);
+    writeRegister(ADXL345_REG_BW_RATE, ADXL345_RATE_200HZ);
+    writeRegister(ADXL345_REG_POWER_CTL, ADXL345_MEASURE_MODE);
+    delay(20);
 
-  calibrateBaseline();
-  printCsvHeader();
+    calibrateBaseline();
+    printCsvHeader();
 }
 
 void loop()
 {
-  handleCommands();
+    handleCommands();
 
-  unsigned long nowMs = millis();
-  if (nowMs - lastSampleMs < SAMPLE_INTERVAL_MS)
-    return;
-  lastSampleMs = nowMs;
+    unsigned long nowMs = millis();
+    if (nowMs - lastSampleMs < SAMPLE_INTERVAL_MS)
+        return;
+    lastSampleMs = nowMs;
 
-  AccelSample sample;
-  if (!readAcceleration(sample))
-    return;
+    AccelSample sample;
+    if (!readAcceleration(sample))
+        return;
 
-  float xG = sample.x / LSB_PER_G;
-  float yG = sample.y / LSB_PER_G;
-  float zG = sample.z / LSB_PER_G;
-  float dxG = xG - (baselineX / LSB_PER_G);
-  float dyG = yG - (baselineY / LSB_PER_G);
-  float dzG = zG - (baselineZ / LSB_PER_G);
-  float dynamicG = sqrt(dxG * dxG + dyG * dyG + dzG * dzG);
+    float xG = sample.x / LSB_PER_G;
+    float yG = sample.y / LSB_PER_G;
+    float zG = sample.z / LSB_PER_G;
+    float dxG = xG - (baselineX / LSB_PER_G);
+    float dyG = yG - (baselineY / LSB_PER_G);
+    float dzG = zG - (baselineZ / LSB_PER_G);
+    float rawDynamicG = sqrt(dxG * dxG + dyG * dyG + dzG * dzG);
+    filteredDynamicG += FILTER_ALPHA * (rawDynamicG - filteredDynamicG);
 
-  bool hit = dynamicG >= hitThresholdG && (nowMs - lastHitMs >= HIT_COOLDOWN_MS);
-  if (hit)
-    lastHitMs = nowMs;
-  if (printSerial) {
-    // Every sample is logged. The hit column is the label for training data.
-    Serial.print(nowMs);
-    Serial.print(',');
-    Serial.print(sampleNumber++);
-    Serial.print(',');
-    Serial.print(sample.x);
-    Serial.print(',');
-    Serial.print(sample.y);
-    Serial.print(',');
-    Serial.print(sample.z);
-    Serial.print(',');
-    Serial.print(xG, 4);
-    Serial.print(',');
-    Serial.print(yG, 4);
-    Serial.print(',');
-    Serial.print(zG, 4);
-    Serial.print(',');
-    Serial.print(dynamicG, 4);
-    Serial.print(',');
-    Serial.print(hit ? 1 : 0);
-    Serial.print(',');
-    Serial.println(hitThresholdG, 3);
-  }
-  if (hit && reportHits)
-  {
-    Serial.print(F("# HIT,dynamic_g="));
-    Serial.print(dynamicG, 3);
-    Serial.print(F(",threshold_g="));
-    Serial.println(hitThresholdG, 3);
-  }
+    finishPeakWindow(nowMs);
+
+    bool hit = false;
+    if (hitArmed && filteredDynamicG >= hitThresholdG &&
+        nowMs - lastHitMs >= HIT_COOLDOWN_MS)
+    {
+        hit = true;
+        lastHitMs = nowMs;
+        hitArmed = false;
+        peakWindowActive = true;
+        hitPeakG = filteredDynamicG;
+        peakWindowEndMs = nowMs + HIT_PEAK_WINDOW_MS;
+    }
+    else if (!hitArmed && filteredDynamicG <= hitThresholdG * REARM_RATIO &&
+             !peakWindowActive)
+    {
+        hitArmed = true;
+    }
+
+    if (peakWindowActive && filteredDynamicG > hitPeakG)
+        hitPeakG = filteredDynamicG;
+
+    float intensity = mapHitIntensity(peakWindowActive ? hitPeakG : filteredDynamicG);
+    unsigned int intensity127 = (unsigned int)(intensity * 127.0f + 0.5f);
+    if (printSerial && hit)
+    {
+        // Every sample is logged. The hit column marks the event start for training data.
+        Serial.print(nowMs);
+        Serial.print(',');
+        Serial.print(sampleNumber++);
+        Serial.print(',');
+        Serial.print(sample.x);
+        Serial.print(',');
+        Serial.print(sample.y);
+        Serial.print(',');
+        Serial.print(sample.z);
+        Serial.print(',');
+        Serial.print(xG, 4);
+        Serial.print(',');
+        Serial.print(yG, 4);
+        Serial.print(',');
+        Serial.print(zG, 4);
+        Serial.print(',');
+        Serial.print(filteredDynamicG, 4);
+        Serial.print(',');
+        Serial.print(peakWindowActive ? hitPeakG : 0.0f, 4);
+        Serial.print(',');
+        Serial.print(intensity, 4);
+        Serial.print(',');
+        Serial.print(intensity127);
+        Serial.print(',');
+        Serial.print(hit ? 1 : 0);
+        Serial.print(',');
+        Serial.println(hitThresholdG, 3);
+    }
 }
