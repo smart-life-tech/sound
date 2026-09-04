@@ -380,6 +380,7 @@ float adxlPreviousRawX = 0.0f;
 float adxlPreviousRawY = 0.0f;
 float adxlPreviousRawZ = 0.0f;
 bool adxlPreviousRawReady = false;
+bool adxlOrientationPending = false;
 
 const char *adxlModelName(AdxlModel model)
 {
@@ -619,6 +620,9 @@ void adxlAutoCalibrateOrientation(uint32_t nowMs)
   float orientationChange = sqrt(baselineDx * baselineDx +
                                  baselineDy * baselineDy +
                                  baselineDz * baselineDz);
+  if (orientationChange >= ADXL_AUTO_ORIENTATION_CHANGE_G)
+    adxlOrientationPending = true;
+
   bool stable = sampleDelta <= ADXL_STATIONARY_DELTA_G &&
                 (!adxlBaselineReady || orientationChange >= ADXL_AUTO_ORIENTATION_CHANGE_G);
 
@@ -652,6 +656,7 @@ void adxlAutoCalibrateOrientation(uint32_t nowMs)
     adxlBaselineZ = adxlStableSumZ / adxlStableSamples;
     adxlFilteredDynamic = 0.0f;
     adxl_magnitude = 0.0f;
+    adxlOrientationPending = false;
     adxlStableSinceMs = 0;
     adxlStableSamples = 0;
     Serial.printf("ADXL345 auto-calibrated orientation from %lu stable samples.\n",
@@ -739,6 +744,11 @@ void piezoISR()
     adxlAutoCalibrateOrientation(now);
   }
   #endif
+
+  // A slow tilt is an orientation change, not a hit. Wait for the new
+  // orientation to settle and let automatic calibration establish its baseline.
+  if (adxlOrientationPending)
+    return;
 
   // If continuous playback is enabled, skip hit detection
   if (continuousPlayback)
