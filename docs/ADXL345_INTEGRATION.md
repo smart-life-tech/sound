@@ -80,10 +80,19 @@ INT2           (optional)        Interrupt output
 - **`-`** → Decrease ADXL threshold by 0.05g
 
 ### General Controls
-- **`c`** → Toggle continuous playback mode
+- **`c`** → Recalibrate the ADXL345 baseline for the current orientation (10 seconds)
 - **`1`** → Toggle high-mid resonance
 - **`2`** → Toggle fast high-decay
 - **`5`** → Toggle tanh saturation
+
+### Recalibrate for a New Orientation
+The hit detector measures movement relative to the device's stationary gravity vector, so it works regardless of which direction the device is pointing.
+
+1. Hold the device still in the desired orientation.
+2. Press **`c`** once.
+3. Keep it still for the full 10-second calibration.
+
+The new X/Y/Z gravity vector becomes the baseline. Hits are then calculated from the change away from that orientation, rather than from absolute acceleration. Do not move the device during calibration.
 
 ## Dual-Input Mode (ADXL + Piezo)
 

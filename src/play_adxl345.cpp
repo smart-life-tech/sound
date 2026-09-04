@@ -361,6 +361,7 @@ bool adxlBaselineReady = false;
 
 const uint32_t ADXL_SAMPLE_INTERVAL_MS = 5;
 const uint32_t ADXL_HIT_COOLDOWN_MS = 80;
+const uint32_t ADXL_RECALIBRATION_TIME_MS = 10000;
 const float ADXL_FILTER_ALPHA = 0.25f;
 const float ADXL_REARM_RATIO = 0.45f;
 const float ADXL_HIT_MAX_G = 3.0f;
@@ -399,6 +400,8 @@ float adxlHitIntensity(float peakG)
 }
 
 // =============== ADXL345 I2C/SPI COMMUNICATION ===============
+void adxlCalibrateBaseline(uint32_t durationMs);
+
 #if ADXL_USE_I2C
 
 byte adxlReadRegister(byte reg)
@@ -482,11 +485,16 @@ void adxlReadAccel()
   adxl_y = y;
   adxl_z = z;
   
-  // Convert to g's and compute magnitude (256 LSB/g in ±16g mode)
+  // Compute movement relative to the current stationary orientation.
   float gx = x / 256.0f;
   float gy = y / 256.0f;
   float gz = z / 256.0f;
-  adxl_magnitude = sqrt(gx*gx + gy*gy + gz*gz);
+  float dx = gx - adxlBaselineX;
+  float dy = gy - adxlBaselineY;
+  float dz = gz - adxlBaselineZ;
+  float dynamicMagnitude = sqrt(dx * dx + dy * dy + dz * dz);
+  adxlFilteredDynamic += ADXL_FILTER_ALPHA * (dynamicMagnitude - adxlFilteredDynamic);
+  adxl_magnitude = adxlBaselineReady ? adxlFilteredDynamic : dynamicMagnitude;
 }
 
 #endif
@@ -534,12 +542,18 @@ void adxlInit()
   adxlWriteRegister(ADXL_REG_INT_ENABLE, 0x00);
 
   Serial.println("Keep the ADXL345 still: calibrating baseline...");
+  adxlCalibrateBaseline(1500);
+  Serial.println("ADXL345 initialized successfully.");
+}
+
+void adxlCalibrateBaseline(uint32_t durationMs)
+{
   int32_t sumX = 0;
   int32_t sumY = 0;
   int32_t sumZ = 0;
   uint16_t sampleCount = 0;
   uint32_t calibrationStart = millis();
-  while (millis() - calibrationStart < 1500)
+  while (millis() - calibrationStart < durationMs)
   {
     adxlReadAccel();
     sumX += adxl_x;
@@ -557,8 +571,6 @@ void adxlInit()
     adxlBaselineReady = true;
     Serial.printf("ADXL345 baseline calibrated from %u samples.\n", sampleCount);
   }
-  
-  Serial.println("ADXL345 initialized successfully.");
 }
 
 void handleSerialHitTestCommand()
@@ -577,6 +589,13 @@ void handleSerialHitTestCommand()
       gHitTestEnabled = !gHitTestEnabled;
       Serial.print("Hit test: ");
       Serial.println(gHitTestEnabled ? "ON" : "OFF");
+      break;
+
+    case 'c':
+    case 'C':
+      Serial.println("Hold ADXL345 still in the new orientation for 10 seconds...");
+      adxlCalibrateBaseline(ADXL_RECALIBRATION_TIME_MS);
+      Serial.println("ADXL345 recalibration complete; hits now use this orientation as zero.");
       break;
 
     case '3':
