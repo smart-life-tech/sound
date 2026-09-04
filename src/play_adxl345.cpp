@@ -370,6 +370,7 @@ const float ADXL_REARM_RATIO = 0.45f;
 const float ADXL_HIT_MAX_G = 3.0f;
 const float ADXL_STATIONARY_DELTA_G = 0.12f;
 const float ADXL_AUTO_ORIENTATION_CHANGE_DEG = 90.0f;
+const float ADXL_ORIENTATION_HYSTERESIS_DEG = 5.0f;
 
 uint32_t adxlStableSinceMs = 0;
 uint32_t adxlStableSamples = 0;
@@ -637,14 +638,16 @@ void adxlAutoCalibrateOrientation(uint32_t nowMs)
     orientationAngleDeg = acosf(cosine) * (180.0f / M_PI);
   }
 
-  if (orientationAngleDeg >= ADXL_AUTO_ORIENTATION_CHANGE_DEG)
-    adxlOrientationPending = true;
-
+  float requiredOrientationAngle = adxlOrientationPending
+                                       ? ADXL_AUTO_ORIENTATION_CHANGE_DEG - ADXL_ORIENTATION_HYSTERESIS_DEG
+                                       : ADXL_AUTO_ORIENTATION_CHANGE_DEG;
   bool stable = sampleDelta <= ADXL_STATIONARY_DELTA_G &&
-                (!adxlBaselineReady || orientationAngleDeg >= ADXL_AUTO_ORIENTATION_CHANGE_DEG);
+                (!adxlBaselineReady || orientationAngleDeg >= requiredOrientationAngle);
 
   if (!stable)
   {
+    // Movement cancels a candidate orientation and immediately restores hit detection.
+    adxlOrientationPending = false;
     adxlStableSinceMs = 0;
     adxlStableSamples = 0;
     adxlStableSumX = 0.0f;
@@ -655,6 +658,7 @@ void adxlAutoCalibrateOrientation(uint32_t nowMs)
 
   if (adxlStableSinceMs == 0)
   {
+    adxlOrientationPending = true;
     adxlStableSinceMs = nowMs;
     Serial.printf("ADXL345 new stationary orientation detected (angle %.1f deg, change %.2fg); waiting %lu seconds.\n",
             orientationAngleDeg,
@@ -763,9 +767,9 @@ void piezoISR()
   }
   #endif
 
-  // A slow tilt is an orientation change, not a hit. Wait for the new
-  // orientation to settle and let automatic calibration establish its baseline.
-  if (adxlOrientationPending)
+  // Suppress hits only while the sensor is actually still in a candidate
+  // orientation. Movement cancels this state above.
+  if (adxlOrientationPending && adxlStableSinceMs != 0)
     return;
 
   // If continuous playback is enabled, skip hit detection
