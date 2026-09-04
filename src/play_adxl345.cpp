@@ -81,8 +81,8 @@
 #define HALL_PITCH_PIN A1
 #define FSR_PIN A0
 #define VOLUME_POT_PIN A3
-#define TREBLE_POT A4
-#define BASS_POT A5
+#define TREBLE_POT A14
+#define BASS_POT A13
 
 // I2C (Wire.h default):
 //   SDA = Pin 18
