@@ -88,11 +88,14 @@ INT2           (optional)        Interrupt output
 ### Recalibrate for a New Orientation
 The hit detector measures movement relative to the device's stationary gravity vector, so it works regardless of which direction the device is pointing.
 
+Automatic recalibration is enabled. When the device is held still in a new orientation for 10 seconds, the firmware averages that stationary gravity vector and adopts it as the new baseline. It only does this when the new orientation differs from the previous baseline by at least 0.15g, so leaving the device still does not repeatedly recalibrate it.
+
 1. Hold the device still in the desired orientation.
-2. Press **`c`** once.
-3. Keep it still for the full 10-second calibration.
+2. Keep it still for the full 10-second calibration. No serial command is required.
 
 The new X/Y/Z gravity vector becomes the baseline. Hits are then calculated from the change away from that orientation, rather than from absolute acceleration. Do not move the device during calibration.
+
+Manual recalibration is also available: press **`c`**, then hold the device still for 10 seconds regardless of how far the orientation changed.
 
 ## Dual-Input Mode (ADXL + Piezo)
 

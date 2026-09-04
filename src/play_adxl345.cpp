@@ -342,6 +342,9 @@ volatile uint16_t currentFSR = 0;
 // ADXL345 state:
 volatile int16_t adxl_x = 0, adxl_y = 0, adxl_z = 0;
 volatile float adxl_magnitude = 0.0f;  // acceleration magnitude (g's)
+volatile float adxlRawGX = 0.0f;
+volatile float adxlRawGY = 0.0f;
+volatile float adxlRawGZ = 0.0f;
 
 // ADXL model selector: software calibration profile only
 enum class AdxlModel
@@ -365,6 +368,18 @@ const uint32_t ADXL_RECALIBRATION_TIME_MS = 10000;
 const float ADXL_FILTER_ALPHA = 0.25f;
 const float ADXL_REARM_RATIO = 0.45f;
 const float ADXL_HIT_MAX_G = 3.0f;
+const float ADXL_STATIONARY_DELTA_G = 0.03f;
+const float ADXL_AUTO_ORIENTATION_CHANGE_G = 0.15f;
+
+uint32_t adxlStableSinceMs = 0;
+uint32_t adxlStableSamples = 0;
+float adxlStableSumX = 0.0f;
+float adxlStableSumY = 0.0f;
+float adxlStableSumZ = 0.0f;
+float adxlPreviousRawX = 0.0f;
+float adxlPreviousRawY = 0.0f;
+float adxlPreviousRawZ = 0.0f;
+bool adxlPreviousRawReady = false;
 
 const char *adxlModelName(AdxlModel model)
 {
@@ -441,6 +456,9 @@ void adxlReadAccel()
   float gx = x / 256.0f;
   float gy = y / 256.0f;
   float gz = z / 256.0f;
+  adxlRawGX = gx;
+  adxlRawGY = gy;
+  adxlRawGZ = gz;
   float dx = gx - adxlBaselineX;
   float dy = gy - adxlBaselineY;
   float dz = gz - adxlBaselineZ;
@@ -489,6 +507,9 @@ void adxlReadAccel()
   float gx = x / 256.0f;
   float gy = y / 256.0f;
   float gz = z / 256.0f;
+  adxlRawGX = gx;
+  adxlRawGY = gy;
+  adxlRawGZ = gz;
   float dx = gx - adxlBaselineX;
   float dy = gy - adxlBaselineY;
   float dz = gz - adxlBaselineZ;
@@ -573,6 +594,66 @@ void adxlCalibrateBaseline(uint32_t durationMs)
   }
 }
 
+void adxlAutoCalibrateOrientation(uint32_t nowMs)
+{
+  if (!adxlPreviousRawReady)
+  {
+    adxlPreviousRawX = adxlRawGX;
+    adxlPreviousRawY = adxlRawGY;
+    adxlPreviousRawZ = adxlRawGZ;
+    adxlPreviousRawReady = true;
+    return;
+  }
+
+  float dx = adxlRawGX - adxlPreviousRawX;
+  float dy = adxlRawGY - adxlPreviousRawY;
+  float dz = adxlRawGZ - adxlPreviousRawZ;
+  float sampleDelta = sqrt(dx * dx + dy * dy + dz * dz);
+  adxlPreviousRawX = adxlRawGX;
+  adxlPreviousRawY = adxlRawGY;
+  adxlPreviousRawZ = adxlRawGZ;
+
+  float baselineDx = adxlRawGX - adxlBaselineX;
+  float baselineDy = adxlRawGY - adxlBaselineY;
+  float baselineDz = adxlRawGZ - adxlBaselineZ;
+  float orientationChange = sqrt(baselineDx * baselineDx +
+                                 baselineDy * baselineDy +
+                                 baselineDz * baselineDz);
+  bool stable = sampleDelta <= ADXL_STATIONARY_DELTA_G &&
+                (!adxlBaselineReady || orientationChange >= ADXL_AUTO_ORIENTATION_CHANGE_G);
+
+  if (!stable)
+  {
+    adxlStableSinceMs = 0;
+    adxlStableSamples = 0;
+    adxlStableSumX = 0.0f;
+    adxlStableSumY = 0.0f;
+    adxlStableSumZ = 0.0f;
+    return;
+  }
+
+  if (adxlStableSinceMs == 0)
+    adxlStableSinceMs = nowMs;
+  adxlStableSumX += adxlRawGX;
+  adxlStableSumY += adxlRawGY;
+  adxlStableSumZ += adxlRawGZ;
+  ++adxlStableSamples;
+
+  if (nowMs - adxlStableSinceMs >= ADXL_RECALIBRATION_TIME_MS && adxlStableSamples > 0)
+  {
+    uint32_t calibratedSamples = adxlStableSamples;
+    adxlBaselineX = adxlStableSumX / adxlStableSamples;
+    adxlBaselineY = adxlStableSumY / adxlStableSamples;
+    adxlBaselineZ = adxlStableSumZ / adxlStableSamples;
+    adxlFilteredDynamic = 0.0f;
+    adxl_magnitude = 0.0f;
+    adxlStableSinceMs = 0;
+    adxlStableSamples = 0;
+    Serial.printf("ADXL345 auto-calibrated orientation from %lu stable samples.\n",
+                  (unsigned long)calibratedSamples);
+  }
+}
+
 void handleSerialHitTestCommand()
 {
   if (Serial.available() == 0)
@@ -650,6 +731,7 @@ void piezoISR()
   {
     lastAdxlSampleMs = now;
     adxlReadAccel();
+    adxlAutoCalibrateOrientation(now);
   }
   #endif
 
