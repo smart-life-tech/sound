@@ -1022,11 +1022,11 @@ void loop()
   {
     lastDebugMs = millis();
     #if ADXL_ENABLED
-    Serial.printf("Piezo: %4u | accel: %.2fg | Hall: %.0f Hz | Bass: %4u | Treble: %4u | FSR: %4u | fade: %.2fs | Vol: %.2f | Active: %u\n",
-                  piezoCenterPeak, adxl_magnitude, hallFreq, bassRaw, trebleRaw, currentFSR, fadeTime, volumeNorm, ganGan.isActive() ? 1u : 0u);
+    Serial.printf("Piezo: %4u | accel: %.2fg | Hall raw: %4u | Hall: %.0f Hz | Bass: %4u | Treble: %4u | FSR: %4u | fade: %.2fs | Vol: %.2f | Active: %u\n",
+            piezoCenterPeak, adxl_magnitude, rawHall, hallFreq, bassRaw, trebleRaw, currentFSR, fadeTime, volumeNorm, ganGan.isActive() ? 1u : 0u);
     #else
-    Serial.printf("Piezo: %4u | Hall: %.0f Hz | Bass: %4u | Treble: %4u | FSR: %4u | fade: %.2fs | Vol: %.2f | Active: %u\n",
-                  piezoCenterPeak, hallFreq, bassRaw, trebleRaw, currentFSR, fadeTime, volumeNorm, ganGan.isActive() ? 1u : 0u);
+    Serial.printf("Piezo: %4u | Hall raw: %4u | Hall: %.0f Hz | Bass: %4u | Treble: %4u | FSR: %4u | fade: %.2fs | Vol: %.2f | Active: %u\n",
+            piezoCenterPeak, rawHall, hallFreq, bassRaw, trebleRaw, currentFSR, fadeTime, volumeNorm, ganGan.isActive() ? 1u : 0u);
     #endif
   }
 
