@@ -33,6 +33,13 @@
 #include <SPI.h>
 #include <math.h>
 
+static uint16_t readAnalogSettled(uint8_t pin)
+{
+  analogRead(pin);
+  delayMicroseconds(5);
+  return analogRead(pin);
+}
+
 #define analogReadFast(pin) analogRead(pin)
 
 // =============== ADXL345 CONFIGURATION ===============
@@ -745,8 +752,8 @@ void piezoISR()
 {
   uint32_t now = millis();
   uint16_t piezoRaw = analogReadFast(PIEZO_CENTER_PIN);
-  uint16_t fsrRaw = analogReadFast(FSR_PIN);
-  float hallRaw = analogReadFast(HALL_PITCH_PIN);
+  uint16_t fsrRaw = readAnalogSettled(FSR_PIN);
+  float hallRaw = readAnalogSettled(HALL_PITCH_PIN);
 
   // Update shared state
   piezoCenterPeak = piezoRaw;
@@ -895,6 +902,7 @@ void setup()
 {
   Serial.begin(115200);
   delay(100);
+  analogReadResolution(10);
   Serial.println("\n=== Teensy 4.x GAN-GAN SYNTH WITH SENSOR MODULATION ===");
 
   // Audio setup
@@ -918,7 +926,7 @@ void setup()
   // Init state
   piezoCenterPeak = 0;
   lastHitMs = 0;
-  smoothedHall = analogReadFast(HALL_PITCH_PIN);
+  smoothedHall = readAnalogSettled(HALL_PITCH_PIN);
   currentFSR = 0;
   inPeakState = false;
 
@@ -950,7 +958,7 @@ void setup()
 void loop()
 {
   piezoISR();
-  uint16_t rawHall = analogReadFast(HALL_PITCH_PIN);
+  uint16_t rawHall = readAnalogSettled(HALL_PITCH_PIN);
 
   static float prevHall = 0.0f;
   static uint32_t lastReexciteMs = 0;
@@ -962,12 +970,12 @@ void loop()
   float hallNorm = ((float)hallVal - HALL_MIN_ADC) / (HALL_MAX_ADC - HALL_MIN_ADC);
   hallNorm = constrain(hallNorm, 0.0f, 1.0f);
 
-  uint16_t bassRaw = analogReadFast(BASS_POT);
+  uint16_t bassRaw = readAnalogSettled(BASS_POT);
   float bassNorm = constrain((float)bassRaw / 1023.0f, 0.0f, 1.0f);
   float baseFreq = 70.0f + (110.0f - 70.0f) * bassNorm;
   baseFreq = constrain(baseFreq, 70.0f, 110.0f);
 
-  uint16_t trebleRaw = analogReadFast(TREBLE_POT);
+  uint16_t trebleRaw = readAnalogSettled(TREBLE_POT);
   float trebleNorm = constrain((float)trebleRaw / 1023.0f, 0.0f, 1.0f);
   ganGan.setBrightness(trebleNorm);
 
@@ -1012,7 +1020,7 @@ void loop()
   float fadeTime = fsrMuted ? 0.03f : (0.1f + (1.9f * fsrNorm));
   ganGan.setFadeTime(fadeTime);
 
-  uint16_t volumeRaw = analogReadFast(VOLUME_POT_PIN);
+  uint16_t volumeRaw = readAnalogSettled(VOLUME_POT_PIN);
   float volumeNorm = constrain((float)volumeRaw / 1023.0f, 0.0f, 1.0f);
   ganGan.setMasterVolume(volumeNorm);
 
