@@ -105,8 +105,8 @@ static uint16_t readAnalogSettled(uint8_t pin)
 #define PIEZO_THRESHOLD 190
 #define PIEZO_DEBOUNCE_MS 1
 
-#define HALL_MIN_ADC 600.0f
-#define HALL_MAX_ADC 770.0f
+#define HALL_MIN_ADC 700.0f
+#define HALL_MAX_ADC 1023.0f
 #define HALL_QUANTIZE_THRESHOLD 0.18f
 #define HALL_QUANTIZE_STEPS 7
 #define HALL_SMOOTH_ALPHA 0.20f
