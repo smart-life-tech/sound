@@ -902,7 +902,7 @@ void setup()
 {
   Serial.begin(115200);
   delay(100);
-  analogReadResolution(16);
+  analogReadResolution(8);
   Serial.println("\n=== Teensy 4.x GAN-GAN SYNTH WITH SENSOR MODULATION ===");
 
   // Audio setup
