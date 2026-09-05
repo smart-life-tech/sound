@@ -36,7 +36,7 @@
 static uint16_t readAnalogSettled(uint8_t pin)
 {
   analogRead(pin);
-  delayMicroseconds(5);
+  delayMicroseconds(500);
   return analogRead(pin);
 }
 
@@ -902,7 +902,7 @@ void setup()
 {
   Serial.begin(115200);
   delay(100);
-  analogReadResolution(10);
+  analogReadResolution(16);
   Serial.println("\n=== Teensy 4.x GAN-GAN SYNTH WITH SENSOR MODULATION ===");
 
   // Audio setup
