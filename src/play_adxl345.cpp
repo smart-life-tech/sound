@@ -902,7 +902,7 @@ void setup()
 {
   Serial.begin(115200);
   delay(100);
-  analogReadResolution(8);
+  analogReadResolution(10);
   Serial.println("\n=== Teensy 4.x GAN-GAN SYNTH WITH SENSOR MODULATION ===");
 
   // Audio setup
@@ -949,6 +949,8 @@ void setup()
   #endif
   
   Serial.println("GPIO: A0=FSR, A1=Hall, A2=Piezo, A3/A4/A5=Pots");
+  Serial.printf("ADC pins: FSR=%d Hall=%d Piezo=%d Vol=%d Treble=%d Bass=%d\n",
+                FSR_PIN, HALL_PITCH_PIN, PIEZO_CENTER_PIN, VOLUME_POT_PIN, TREBLE_POT, BASS_POT);
   Serial.println("Analog Hall → Base Freq | FSR → Output Gain");
   Serial.println("Press: c=continuous, h=hit-test, 3=ADXL334, 4=ADXL345, +/-=threshold");
   Serial.println("Press: 1=HighMid, 2=FastHighDecay, 5=Tanh");
