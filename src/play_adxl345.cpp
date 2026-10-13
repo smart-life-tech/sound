@@ -1091,9 +1091,11 @@ void loop()
   ganGan.setFadeTime(fadeTime);
 
   uint16_t hallRaw[HALL_COUNT];
+  float hallDeltaFromBase[HALL_COUNT];
   for (uint8_t i = 0; i < HALL_COUNT; i++)
   {
     hallRaw[i] = readHallPin(HALL_PINS[i]);
+    hallDeltaFromBase[i] = (float)hallRaw[i] - hallBase[i];
   }
 
   uint16_t volumeRaw = readAnalogSettled(VOLUME_POT_PIN);
@@ -1106,13 +1108,21 @@ void loop()
   {
     lastDebugMs = millis();
     #if ADXL_ENABLED
-    Serial.printf("Piezo: %4u | accel: %.2fg | Hall raw A1/A8/A9/A10: %4u %4u %4u %4u | Winner: %4u | Hall: %.0f Hz | Bass: %4u | Treble: %4u | FSR: %4u | fade: %.2fs | Vol: %.2f | Active: %u\n",
+    Serial.printf("Piezo: %4u | accel: %.2fg | Hall raw A1/A8/A9/A10: %4u %4u %4u %4u | base: %4.0f %4.0f %4.0f %4.0f | delta: %+5.0f %+5.0f %+5.0f %+5.0f | Winner: %4u | Hall: %.0f Hz | Bass: %4u | Treble: %4u | FSR: %4u | fade: %.2fs | Vol: %.2f | Active: %u\n",
                   piezoCenterPeak,
                   adxl_magnitude,
                   hallRaw[0],
                   hallRaw[1],
                   hallRaw[2],
                   hallRaw[3],
+                  hallBase[0],
+                  hallBase[1],
+                  hallBase[2],
+                  hallBase[3],
+                  hallDeltaFromBase[0],
+                  hallDeltaFromBase[1],
+                  hallDeltaFromBase[2],
+                  hallDeltaFromBase[3],
                   rawHall,
                   hallFreq,
                   bassRaw,
@@ -1122,12 +1132,20 @@ void loop()
                   volumeNorm,
                   ganGan.isActive() ? 1u : 0u);
     #else
-    Serial.printf("Piezo: %4u | Hall raw A1/A8/A9/A10: %4u %4u %4u %4u | Winner: %4u | Hall: %.0f Hz | Bass: %4u | Treble: %4u | FSR: %4u | fade: %.2fs | Vol: %.2f | Active: %u\n",
+    Serial.printf("Piezo: %4u | Hall raw A1/A8/A9/A10: %4u %4u %4u %4u | base: %4.0f %4.0f %4.0f %4.0f | delta: %+5.0f %+5.0f %+5.0f %+5.0f | Winner: %4u | Hall: %.0f Hz | Bass: %4u | Treble: %4u | FSR: %4u | fade: %.2fs | Vol: %.2f | Active: %u\n",
                   piezoCenterPeak,
                   hallRaw[0],
                   hallRaw[1],
                   hallRaw[2],
                   hallRaw[3],
+                  hallBase[0],
+                  hallBase[1],
+                  hallBase[2],
+                  hallBase[3],
+                  hallDeltaFromBase[0],
+                  hallDeltaFromBase[1],
+                  hallDeltaFromBase[2],
+                  hallDeltaFromBase[3],
                   rawHall,
                   hallFreq,
                   bassRaw,
