@@ -1184,7 +1184,8 @@ void loop()
 
   uint16_t bassRaw = readAnalogSettled(BASS_POT);
   float bassNorm = constrain((float)bassRaw / 1023.0f, 0.0f, 1.0f);
-  float baseFreq = 70.0f + (110.0f - 70.0f) * bassNorm;
+  // The PCB pot is wired so a high ADC reading selects the low bass endpoint.
+  float baseFreq = 110.0f - (110.0f - 70.0f) * bassNorm;
   baseFreq = constrain(baseFreq, 70.0f, 110.0f);
 
   uint16_t trebleRaw = readAnalogSettled(TREBLE_POT);
