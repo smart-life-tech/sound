@@ -86,7 +86,7 @@ static uint16_t readAnalogSettled(uint8_t pin)
 // G-Ayan Ver.1 pin map (Teensy 4.1)
 #define PIEZO_CENTER_PIN A2
 #define FSR_PIN A0
-#define VOLUME_POT_PIN A2
+#define VOLUME_POT_PIN A3
 #define TREBLE_POT A4
 #define BASS_POT A5
 
@@ -986,7 +986,10 @@ void setup()
   // Sensor pins
   pinMode(PIEZO_CENTER_PIN, INPUT);
   for (uint8_t i = 0; i < HALL_COUNT; i++)
+  {
     pinMode(HALL_PINS[i], INPUT);
+    analogRead(HALL_PINS[i]);
+  }
   pinMode(FSR_PIN, INPUT);
   pinMode(VOLUME_POT_PIN, INPUT);
   pinMode(TREBLE_POT, INPUT);
@@ -1087,6 +1090,12 @@ void loop()
   float fadeTime = fsrMuted ? 0.03f : (0.1f + (1.9f * fsrNorm));
   ganGan.setFadeTime(fadeTime);
 
+  uint16_t hallRaw[HALL_COUNT];
+  for (uint8_t i = 0; i < HALL_COUNT; i++)
+  {
+    hallRaw[i] = readHallPin(HALL_PINS[i]);
+  }
+
   uint16_t volumeRaw = readAnalogSettled(VOLUME_POT_PIN);
   float volumeNorm = constrain((float)volumeRaw / 1023.0f, 0.0f, 1.0f);
   ganGan.setMasterVolume(volumeNorm);
@@ -1097,11 +1106,36 @@ void loop()
   {
     lastDebugMs = millis();
     #if ADXL_ENABLED
-    Serial.printf("Piezo: %4u | accel: %.2fg | Hall raw: %4u | Hall: %.0f Hz | Bass: %4u | Treble: %4u | FSR: %4u | fade: %.2fs | Vol: %.2f | Active: %u\n",
-            piezoCenterPeak, adxl_magnitude, rawHall, hallFreq, bassRaw, trebleRaw, currentFSR, fadeTime, volumeNorm, ganGan.isActive() ? 1u : 0u);
+    Serial.printf("Piezo: %4u | accel: %.2fg | Hall raw A1/A8/A9/A10: %4u %4u %4u %4u | Winner: %4u | Hall: %.0f Hz | Bass: %4u | Treble: %4u | FSR: %4u | fade: %.2fs | Vol: %.2f | Active: %u\n",
+                  piezoCenterPeak,
+                  adxl_magnitude,
+                  hallRaw[0],
+                  hallRaw[1],
+                  hallRaw[2],
+                  hallRaw[3],
+                  rawHall,
+                  hallFreq,
+                  bassRaw,
+                  trebleRaw,
+                  currentFSR,
+                  fadeTime,
+                  volumeNorm,
+                  ganGan.isActive() ? 1u : 0u);
     #else
-    Serial.printf("Piezo: %4u | Hall raw: %4u | Hall: %.0f Hz | Bass: %4u | Treble: %4u | FSR: %4u | fade: %.2fs | Vol: %.2f | Active: %u\n",
-            piezoCenterPeak, rawHall, hallFreq, bassRaw, trebleRaw, currentFSR, fadeTime, volumeNorm, ganGan.isActive() ? 1u : 0u);
+    Serial.printf("Piezo: %4u | Hall raw A1/A8/A9/A10: %4u %4u %4u %4u | Winner: %4u | Hall: %.0f Hz | Bass: %4u | Treble: %4u | FSR: %4u | fade: %.2fs | Vol: %.2f | Active: %u\n",
+                  piezoCenterPeak,
+                  hallRaw[0],
+                  hallRaw[1],
+                  hallRaw[2],
+                  hallRaw[3],
+                  rawHall,
+                  hallFreq,
+                  bassRaw,
+                  trebleRaw,
+                  currentFSR,
+                  fadeTime,
+                  volumeNorm,
+                  ganGan.isActive() ? 1u : 0u);
     #endif
   }
 
