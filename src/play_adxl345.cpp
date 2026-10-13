@@ -145,7 +145,7 @@ public:
     envDur = envDurBase;
     envAttack = 0.001f;
     outputGain = 0.4f;
-    masterVolume = 0.55f;
+    masterVolume = 1.0f;
     fadeTime = 0.5f;
 
     phaseA = phaseB = phaseSub = 0.0f;
@@ -868,14 +868,14 @@ void piezoISR()
     armed = false;
   }
 
-  // 2. Re-arm only when piezo is fully quiet
+  // 2. Re-arm only when the active trigger source is fully quiet
   if (!armed)
   {
     bool adxlReady = (adxl_magnitude <= gAdxlThreshold * ADXL_REARM_RATIO);
     #if ADXL_ENABLED && !ADXL_DUAL_INPUT
     if (adxlReady)
     #else
-    if ((piezoRaw < LOWER_RESET) && adxlReady)
+    if ((piezoRaw < LOWER_RESET) || adxlReady)
     #endif
     {
       armed = true;
@@ -888,16 +888,19 @@ void piezoISR()
 
   // 3. Detect valid rising hit (piezo or ADXL based on mode)
   bool hitDetected = false;
+  bool piezoHit = false;
   
   #if ADXL_ENABLED && !ADXL_DUAL_INPUT
   // ADXL345 only mode
   hitDetected = (adxl_magnitude >= gAdxlThreshold);
   #elif ADXL_ENABLED && ADXL_DUAL_INPUT
   // Dual input: trigger on either piezo OR ADXL345
-  hitDetected = (piezoRaw >= PIEZO_THRESHOLD) || (adxl_magnitude >= gAdxlThreshold);
+  piezoHit = (piezoRaw >= PIEZO_THRESHOLD);
+  hitDetected = piezoHit || (adxl_magnitude >= gAdxlThreshold);
   #else
   // Piezo only (ADXL disabled)
   hitDetected = (piezoRaw >= PIEZO_THRESHOLD);
+  piezoHit = hitDetected;
   #endif
   
   if (armed && hitDetected)
@@ -934,9 +937,16 @@ void piezoISR()
     velocity = adxlHitIntensity(adxl_magnitude);
     hitIntensity = velocity;
     #else
-    velocity = (float)(peak - PIEZO_THRESHOLD) / (float)(1023 - PIEZO_THRESHOLD);
-    velocity = constrain(velocity, 0.0f, 1.0f);
-    velocity = 0.15f + velocity * 0.85f;
+    if (piezoHit)
+    {
+      velocity = (float)(peak - PIEZO_THRESHOLD) / (float)(1023 - PIEZO_THRESHOLD);
+      velocity = constrain(velocity, 0.0f, 1.0f);
+      velocity = 0.15f + velocity * 0.85f;
+    }
+    else
+    {
+      velocity = adxlHitIntensity(adxl_magnitude);
+    }
     hitIntensity = audioHitIntensity(peak, fsrRaw);
     #endif
     if (gHitTestEnabled)
@@ -986,6 +996,7 @@ void setup()
   ganGan.setEnvDur(0.62f);
   ganGan.setOutputGain(0.4f);
   ganGan.setFadeTime(0.5f);
+  ganGan.setMasterVolume(1.0f);
 
   // Sensor pins
   pinMode(PIEZO_CENTER_PIN, INPUT);
