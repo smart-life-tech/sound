@@ -847,10 +847,12 @@ void piezoISR()
   }
   #endif
 
-  // Suppress hits only while the sensor is actually still in a candidate
-  // orientation. Movement cancels this state above.
+  // During ADXL-only operation, suppress hits while a new orientation is
+  // being calibrated. In dual mode, keep piezo hits available meanwhile.
+#if ADXL_ENABLED && !ADXL_DUAL_INPUT
   if (adxlOrientationPending && adxlStableSinceMs != 0)
     return;
+#endif
 
   // If continuous playback is enabled, skip hit detection
   if (continuousPlayback)
