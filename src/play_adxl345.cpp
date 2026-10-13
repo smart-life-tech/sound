@@ -816,6 +816,7 @@ void handleSerialHitTestCommand()
 bool continuousPlayback = false;
 uint32_t lastContinuousTriggerMs = 0;
 const uint32_t CONTINUOUS_TRIGGER_INTERVAL_MS = 400;
+const bool HALL_TEST_MODE = true;
 
 // =============== ISR: PIEZO + ADXL345 EDGE DETECTION & GANGAN TRIGGER ===============
 void piezoISR()
@@ -1031,6 +1032,35 @@ void setup()
 // =============== MAIN LOOP ===============
 void loop()
 {
+  if (HALL_TEST_MODE)
+  {
+    piezoISR();
+
+    static uint32_t lastHallDebugMs = 0;
+    if (millis() - lastHallDebugMs < 200)
+      return;
+    lastHallDebugMs = millis();
+
+    Serial.printf("HALL TEST | raw A1/A8/A9/A10: %4u %4u %4u %4u | base: %4.0f %4.0f %4.0f %4.0f | delta: %+5.0f %+5.0f %+5.0f %+5.0f | winner: %u (%4u) | smooth: %6.1f | rawDelta: %5.1f\n",
+                  (uint16_t)hallPrevRaw[0],
+                  (uint16_t)hallPrevRaw[1],
+                  (uint16_t)hallPrevRaw[2],
+                  (uint16_t)hallPrevRaw[3],
+                  hallBase[0],
+                  hallBase[1],
+                  hallBase[2],
+                  hallBase[3],
+                  hallPrevRaw[0] - hallBase[0],
+                  hallPrevRaw[1] - hallBase[1],
+                  hallPrevRaw[2] - hallBase[2],
+                  hallPrevRaw[3] - hallBase[3],
+                  hallWinner,
+                  hallWinnerRaw,
+                  smoothedHall,
+                  hallRawDelta);
+    return;
+  }
+
   piezoISR();
   uint16_t rawHall = hallWinnerRaw;
 
