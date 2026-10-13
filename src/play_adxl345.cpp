@@ -11,8 +11,8 @@
    ADXL345 HARDWARE PINS (Teensy 4.x):
    ====================================
    I2C Mode (default):
-     SDA (Data)  = A12
-     SCL (Clock) = A13
+     SDA (Data)  = Pin 26
+     SCL (Clock) = Pin 27
      SD0 (Addr)  = GND for 0x53, VCC for 0x1D
      INT1        = Optional interrupt output
      INT2        = Optional interrupt output
@@ -95,8 +95,8 @@ static uint16_t readAnalogSettled(uint8_t pin)
 static const uint8_t HALL_PINS[HALL_COUNT] = {A1, A8, A9, A10};
 
 // I2C (custom pins):
-//   SDA = A12
-//   SCL = A13
+//   SDA = 26
+//   SCL = 27
 
 // SPI (SPI.h default):
 //   MOSI = Pin 11
@@ -600,8 +600,8 @@ void adxlReadAccel()
 void adxlInit()
 {
   #if ADXL_USE_I2C
-  Wire.setSDA(A12);
-  Wire.setSCL(A13);
+  Wire.setSDA(26);
+  Wire.setSCL(27);
   Wire.begin();
   Wire.setClock(400000);  // 400 kHz I2C clock
   #endif
@@ -1007,7 +1007,7 @@ void setup()
   
   #if ADXL_ENABLED
   #if ADXL_USE_I2C
-  Serial.println("ADXL345 protocol: I2C (SDA=A12, SCL=A13; address=0x53 if SD0 grounded)");
+  Serial.println("ADXL345 protocol: I2C (SDA=26, SCL=27; address=0x53 if SD0 grounded)");
   #elif ADXL_USE_SPI
   Serial.println("ADXL345 protocol: SPI (MOSI=11, MISO=12, SCL=13, CS=10)");
   #endif
@@ -1021,7 +1021,7 @@ void setup()
   Serial.println("ADXL345: DISABLED");
   #endif
   
-  Serial.println("GPIO: A0=FSR, A1/A8/A9/A10=Hall x4, A2=Vol, A4=Treble, A5=Bass, A12/A13=ADXL345 SDA/SCL");
+  Serial.println("GPIO: A0=FSR, A1/A8/A9/A10=Hall x4, A2=Vol, A4=Treble, A5=Bass, 26/27=ADXL345 SDA/SCL");
   Serial.printf("ADC pins: FSR=%d Piezo=%d Vol=%d Treble=%d Bass=%d\n",
                 FSR_PIN, PIEZO_CENTER_PIN, VOLUME_POT_PIN, TREBLE_POT, BASS_POT);
   Serial.println("Analog Hall → Base Freq | FSR → Output Gain");
