@@ -501,7 +501,7 @@ byte adxlReadRegister(byte reg)
   Wire.beginTransmission(ADXL_I2C_ADDRESS);
   Wire.write(reg);
   Wire.endTransmission(false);
-  Wire.requestFrom((int)ADXL_I2C_ADDRESS, 1, true);
+  Wire.requestFrom((uint8_t)ADXL_I2C_ADDRESS, (uint8_t)1, true);
   return Wire.read();
 }
 
@@ -518,7 +518,7 @@ void adxlReadAccel()
   Wire.beginTransmission(ADXL_I2C_ADDRESS);
   Wire.write(ADXL_REG_X0);
   Wire.endTransmission(false);
-  if (Wire.requestFrom((int)ADXL_I2C_ADDRESS, 6, true) != 6)
+  if (Wire.requestFrom((uint8_t)ADXL_I2C_ADDRESS, (uint8_t)6, true) != 6)
     return;
   
   int16_t x = Wire.read() | (Wire.read() << 8);
@@ -604,6 +604,10 @@ void adxlInit()
   Wire.setSCL(27);
   Wire.begin();
   Wire.setClock(400000);  // 400 kHz I2C clock
+  Serial.printf("ADXL345 I2C bus check on pins SDA=26 SCL=27, address=0x%02X\n", ADXL_I2C_ADDRESS);
+  Wire.beginTransmission(ADXL_I2C_ADDRESS);
+  byte busStatus = Wire.endTransmission();
+  Serial.printf("ADXL345 I2C probe status: %u\n", busStatus);
   #endif
   
   #if ADXL_USE_SPI
@@ -867,12 +871,11 @@ void piezoISR()
   // 2. Re-arm only when piezo is fully quiet
   if (!armed)
   {
-    bool piezoReady = (piezoRaw < LOWER_RESET);
     bool adxlReady = (adxl_magnitude <= gAdxlThreshold * ADXL_REARM_RATIO);
     #if ADXL_ENABLED && !ADXL_DUAL_INPUT
     if (adxlReady)
     #else
-    if (piezoReady && adxlReady)
+    if ((piezoRaw < LOWER_RESET) && adxlReady)
     #endif
     {
       armed = true;
