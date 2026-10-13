@@ -1032,7 +1032,7 @@ void piezoISR()
     float velocity;
     float hitIntensity;
     #if ADXL_ENABLED && !ADXL_DUAL_INPUT
-    velocity = adxlHitIntensity(adxl_magnitude);
+    velocity = 0.15f + 0.85f * adxlHitIntensity(adxl_magnitude);
     hitIntensity = velocity;
     #else
     if (piezoHit)
@@ -1043,7 +1043,7 @@ void piezoISR()
     }
     else
     {
-      velocity = adxlHitIntensity(adxl_magnitude);
+      velocity = 0.15f + 0.85f * adxlHitIntensity(adxl_magnitude);
     }
     hitIntensity = audioHitIntensity(peak, fsrRaw);
     #endif
