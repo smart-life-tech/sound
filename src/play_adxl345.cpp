@@ -434,7 +434,7 @@ enum class AdxlModel
   ADXL345
 };
 
-bool gHitTestEnabled = true;
+bool gHitTestEnabled = false;
 AdxlModel gSelectedAdxlModel = AdxlModel::ADXL345;
 float gAdxlThreshold = 0.35f; // Acceleration threshold (g's) for hit detection
 float adxlBaselineX = 0.0f;
@@ -979,10 +979,12 @@ void piezoISR()
   if (!armed)
   {
     bool adxlReady = (adxl_magnitude <= gAdxlThreshold * ADXL_REARM_RATIO);
-    #if ADXL_ENABLED && !ADXL_DUAL_INPUT
+    #if ADXL_ENABLED && ADXL_DUAL_INPUT
+    if ((piezoRaw < LOWER_RESET) && adxlReady)
+    #elif ADXL_ENABLED && !ADXL_DUAL_INPUT
     if (adxlReady)
     #else
-    if ((piezoRaw < LOWER_RESET) || adxlReady)
+    if (piezoRaw < LOWER_RESET)
     #endif
     {
       armed = true;
@@ -1014,17 +1016,6 @@ void piezoISR()
   {
     lastHitTime = now;
     armed = false;
-
-    #if ADXL_ENABLED
-    float initialAdxlIntensity = adxlHitIntensity(adxl_magnitude);
-    if (gHitTestEnabled)
-    {
-      Serial.printf("[HIT_START] accel=%.2fg threshold=%.2fg mapped_volume=%.3f\n",
-                    adxl_magnitude,
-                    gAdxlThreshold,
-                    initialAdxlIntensity);
-    }
-    #endif
 
     // Peak-hold capture for piezo
     uint16_t peak = piezoRaw;
@@ -1255,7 +1246,7 @@ void loop()
 
   // Debug output
   static uint32_t lastDebugMs = 0;
-  if (millis() - lastDebugMs >= 500)
+  if (millis() - lastDebugMs >= 5000)
   {
     lastDebugMs = millis();
     #if ADXL_ENABLED
