@@ -2,15 +2,16 @@
    Teensy 4.x GAN-GAN SYNTHESIS WITH REAL-TIME SENSOR MODULATION
    - GanGan synth: FM attack + harmonic body + subharmonic jitter
    - Parameters tuned for expressive drum sound
-   - Analog Hall effect sensor (A1) → Base frequency modulation (pitch control)
+   - Four analog Hall effect sensors (A1/A8/A9/A10) → Base frequency modulation
    - FSR sensor (A0) → sustain (fade time), with hysteresis mute/cutoff
-   - Volume pot (A2) → master volume
-   - Treble pot (A4) → brightness (filter cutoff), decoupled from pitch
+   - Piezo sensor (A2) → hit trigger
+   - Volume pot (A3) → master volume
+   - Treble/Bass pots (A4/A5) → brightness/base pitch
    - ADXL345 accelerometer (I2C or SPI) → Optional hit detection
    
    ADXL345 HARDWARE PINS (Teensy 4.x):
    ====================================
-   I2C Mode (default):
+   I2C Mode (default, GPIO bit-banged for this fixed PCB routing):
      SDA (Data)  = Pin 26
      SCL (Clock) = Pin 27
      SD0 (Addr)  = GND for 0x53, VCC for 0x1D
@@ -28,7 +29,6 @@
 
 #include <Arduino.h>
 #include <Audio.h>
-#include <Wire.h>
 #include <SPI.h>
 #include <math.h>
 
@@ -59,6 +59,12 @@ static uint16_t readAnalogSettled(uint8_t pin)
 
 // ADXL345 SPI Chip Select Pin (if using SPI):
 #define ADXL_CS_PIN          10
+
+// The PCB routes ADXL345 I2C to Teensy pins 26/27, which are not hardware
+// I2C pins on Teensy 4.1. Use GPIO bit-banging to preserve the PCB pinout.
+#define ADXL_I2C_SDA_PIN      26
+#define ADXL_I2C_SCL_PIN      27
+#define ADXL_I2C_HALF_PERIOD_US 5
 
 // ADXL345 Register Map:
 #define ADXL_REG_DEVID       0x00
@@ -496,34 +502,128 @@ void adxlCalibrateBaseline(uint32_t durationMs);
 
 #if ADXL_USE_I2C
 
+void adxlI2CRelease(uint8_t pin)
+{
+  pinMode(pin, INPUT_PULLUP);
+}
+
+void adxlI2CDriveLow(uint8_t pin)
+{
+  digitalWrite(pin, LOW);
+  pinMode(pin, OUTPUT);
+}
+
+void adxlI2CStart()
+{
+  adxlI2CRelease(ADXL_I2C_SDA_PIN);
+  adxlI2CRelease(ADXL_I2C_SCL_PIN);
+  delayMicroseconds(ADXL_I2C_HALF_PERIOD_US);
+  adxlI2CDriveLow(ADXL_I2C_SDA_PIN);
+  delayMicroseconds(ADXL_I2C_HALF_PERIOD_US);
+  adxlI2CDriveLow(ADXL_I2C_SCL_PIN);
+}
+
+void adxlI2CStop()
+{
+  adxlI2CDriveLow(ADXL_I2C_SDA_PIN);
+  adxlI2CRelease(ADXL_I2C_SCL_PIN);
+  delayMicroseconds(ADXL_I2C_HALF_PERIOD_US);
+  adxlI2CRelease(ADXL_I2C_SDA_PIN);
+  delayMicroseconds(ADXL_I2C_HALF_PERIOD_US);
+}
+
+bool adxlI2CWriteByte(uint8_t value)
+{
+  for (uint8_t bit = 0; bit < 8; ++bit)
+  {
+    if (value & 0x80)
+      adxlI2CRelease(ADXL_I2C_SDA_PIN);
+    else
+      adxlI2CDriveLow(ADXL_I2C_SDA_PIN);
+
+    adxlI2CRelease(ADXL_I2C_SCL_PIN);
+    delayMicroseconds(ADXL_I2C_HALF_PERIOD_US);
+    adxlI2CDriveLow(ADXL_I2C_SCL_PIN);
+    value <<= 1;
+  }
+
+  adxlI2CRelease(ADXL_I2C_SDA_PIN);
+  adxlI2CRelease(ADXL_I2C_SCL_PIN);
+  delayMicroseconds(ADXL_I2C_HALF_PERIOD_US);
+  bool acknowledged = digitalRead(ADXL_I2C_SDA_PIN) == LOW;
+  adxlI2CDriveLow(ADXL_I2C_SCL_PIN);
+  return acknowledged;
+}
+
+uint8_t adxlI2CReadByte(bool acknowledge)
+{
+  uint8_t value = 0;
+  adxlI2CRelease(ADXL_I2C_SDA_PIN);
+  for (uint8_t bit = 0; bit < 8; ++bit)
+  {
+    value <<= 1;
+    adxlI2CRelease(ADXL_I2C_SCL_PIN);
+    delayMicroseconds(ADXL_I2C_HALF_PERIOD_US);
+    if (digitalRead(ADXL_I2C_SDA_PIN) == HIGH)
+      value |= 1;
+    adxlI2CDriveLow(ADXL_I2C_SCL_PIN);
+  }
+
+  if (acknowledge)
+    adxlI2CDriveLow(ADXL_I2C_SDA_PIN);
+  else
+    adxlI2CRelease(ADXL_I2C_SDA_PIN);
+  adxlI2CRelease(ADXL_I2C_SCL_PIN);
+  delayMicroseconds(ADXL_I2C_HALF_PERIOD_US);
+  adxlI2CDriveLow(ADXL_I2C_SCL_PIN);
+  adxlI2CRelease(ADXL_I2C_SDA_PIN);
+  return value;
+}
+
 byte adxlReadRegister(byte reg)
 {
-  Wire.beginTransmission(ADXL_I2C_ADDRESS);
-  Wire.write(reg);
-  Wire.endTransmission(false);
-  Wire.requestFrom((uint8_t)ADXL_I2C_ADDRESS, (uint8_t)1, true);
-  return Wire.read();
+  adxlI2CStart();
+  bool acknowledged = adxlI2CWriteByte((ADXL_I2C_ADDRESS << 1) | 0);
+  acknowledged = adxlI2CWriteByte(reg) && acknowledged;
+  adxlI2CStart();
+  acknowledged = adxlI2CWriteByte((ADXL_I2C_ADDRESS << 1) | 1) && acknowledged;
+  uint8_t value = adxlI2CReadByte(false);
+  adxlI2CStop();
+  return acknowledged ? value : 0xFF;
 }
 
 void adxlWriteRegister(byte reg, byte value)
 {
-  Wire.beginTransmission(ADXL_I2C_ADDRESS);
-  Wire.write(reg);
-  Wire.write(value);
-  Wire.endTransmission(true);
+  adxlI2CStart();
+  adxlI2CWriteByte((ADXL_I2C_ADDRESS << 1) | 0);
+  adxlI2CWriteByte(reg);
+  adxlI2CWriteByte(value);
+  adxlI2CStop();
 }
 
 void adxlReadAccel()
 {
-  Wire.beginTransmission(ADXL_I2C_ADDRESS);
-  Wire.write(ADXL_REG_X0);
-  Wire.endTransmission(false);
-  if (Wire.requestFrom((uint8_t)ADXL_I2C_ADDRESS, (uint8_t)6, true) != 6)
+  adxlI2CStart();
+  bool acknowledged = adxlI2CWriteByte((ADXL_I2C_ADDRESS << 1) | 0);
+  acknowledged = adxlI2CWriteByte(ADXL_REG_X0) && acknowledged;
+  adxlI2CStart();
+  acknowledged = adxlI2CWriteByte((ADXL_I2C_ADDRESS << 1) | 1) && acknowledged;
+  if (!acknowledged)
+  {
+    adxlI2CStop();
     return;
+  }
   
-  int16_t x = Wire.read() | (Wire.read() << 8);
-  int16_t y = Wire.read() | (Wire.read() << 8);
-  int16_t z = Wire.read() | (Wire.read() << 8);
+  uint8_t xLow = adxlI2CReadByte(true);
+  uint8_t xHigh = adxlI2CReadByte(true);
+  uint8_t yLow = adxlI2CReadByte(true);
+  uint8_t yHigh = adxlI2CReadByte(true);
+  uint8_t zLow = adxlI2CReadByte(true);
+  uint8_t zHigh = adxlI2CReadByte(false);
+  adxlI2CStop();
+  int16_t x = (int16_t)((uint16_t)xLow | ((uint16_t)xHigh << 8));
+  int16_t y = (int16_t)((uint16_t)yLow | ((uint16_t)yHigh << 8));
+  int16_t z = (int16_t)((uint16_t)zLow | ((uint16_t)zHigh << 8));
   
   adxl_x = x;
   adxl_y = y;
@@ -600,14 +700,17 @@ void adxlReadAccel()
 void adxlInit()
 {
   #if ADXL_USE_I2C
-  Wire.setSDA(26);
-  Wire.setSCL(27);
-  Wire.begin();
-  Wire.setClock(400000);  // 400 kHz I2C clock
-  Serial.printf("ADXL345 I2C bus check on pins SDA=26 SCL=27, address=0x%02X\n", ADXL_I2C_ADDRESS);
-  Wire.beginTransmission(ADXL_I2C_ADDRESS);
-  byte busStatus = Wire.endTransmission();
-  Serial.printf("ADXL345 I2C probe status: %u\n", busStatus);
+  adxlI2CRelease(ADXL_I2C_SDA_PIN);
+  adxlI2CRelease(ADXL_I2C_SCL_PIN);
+  Serial.printf("ADXL345 software-I2C probe on SDA=%u SCL=%u, address=0x%02X\n",
+                ADXL_I2C_SDA_PIN, ADXL_I2C_SCL_PIN, ADXL_I2C_ADDRESS);
+  byte devid = adxlReadRegister(ADXL_REG_DEVID);
+  Serial.printf("ADXL345 Device ID: 0x%02X (expected 0xE5)\n", devid);
+  if (devid != 0xE5)
+  {
+    Serial.println("WARNING: ADXL345 not detected. Check PCB pull-ups, power/ground, and SD0 address wiring.");
+    return;
+  }
   #endif
   
   #if ADXL_USE_SPI
@@ -620,6 +723,7 @@ void adxlInit()
   delay(10);
   
   // Verify ADXL345 presence
+  #if ADXL_USE_SPI
   byte devid = adxlReadRegister(ADXL_REG_DEVID);
   Serial.printf("ADXL345 Device ID: 0x%02X (expected 0xE5)\n", devid);
   
@@ -628,6 +732,7 @@ void adxlInit()
     Serial.println("WARNING: ADXL345 not detected or communication failed!");
     return;
   }
+  #endif
   
   // Reset to defaults via power cycle
   adxlWriteRegister(ADXL_REG_POWER_CTL, 0x00);
@@ -1037,7 +1142,7 @@ void setup()
   Serial.println("ADXL345: DISABLED");
   #endif
   
-  Serial.println("GPIO: A0=FSR, A1/A8/A9/A10=Hall x4, A2=Vol, A4=Treble, A5=Bass, 26/27=ADXL345 SDA/SCL");
+  Serial.println("GPIO: A0=FSR, A1/A8/A9/A10=Hall x4, A2=Piezo, A3=Vol, A4=Treble, A5=Bass, 26/27=ADXL345 SDA/SCL");
   Serial.printf("ADC pins: FSR=%d Piezo=%d Vol=%d Treble=%d Bass=%d\n",
                 FSR_PIN, PIEZO_CENTER_PIN, VOLUME_POT_PIN, TREBLE_POT, BASS_POT);
   Serial.println("Analog Hall → Base Freq | FSR → Output Gain");
