@@ -816,7 +816,7 @@ void handleSerialHitTestCommand()
 bool continuousPlayback = false;
 uint32_t lastContinuousTriggerMs = 0;
 const uint32_t CONTINUOUS_TRIGGER_INTERVAL_MS = 400;
-const bool HALL_TEST_MODE = true;
+const bool HALL_TEST_MODE = false;
 
 // =============== ISR: PIEZO + ADXL345 EDGE DETECTION & GANGAN TRIGGER ===============
 void piezoISR()
