@@ -4,16 +4,15 @@
    - Parameters tuned for expressive drum sound
    - Analog Hall effect sensor (A1) → Base frequency modulation (pitch control)
    - FSR sensor (A0) → sustain (fade time), with hysteresis mute/cutoff
-   - Volume pot (A3) → master volume
+   - Volume pot (A2) → master volume
    - Treble pot (A4) → brightness (filter cutoff), decoupled from pitch
-   - Piezo sensor (A2) → Trigger noteOn (peak-hold velocity capture)
    - ADXL345 accelerometer (I2C or SPI) → Optional hit detection
    
    ADXL345 HARDWARE PINS (Teensy 4.x):
    ====================================
    I2C Mode (default):
-     SDA (Data)  = Pin 18 (Wire.h default)
-     SCL (Clock) = Pin 19 (Wire.h default)
+     SDA (Data)  = A12
+     SCL (Clock) = A13
      SD0 (Addr)  = GND for 0x53, VCC for 0x1D
      INT1        = Optional interrupt output
      INT2        = Optional interrupt output
@@ -84,16 +83,20 @@ static uint16_t readAnalogSettled(uint8_t pin)
 
 // ------------------- PINS -------------------
 // Analog sensors (ADC):
+// G-Ayan Ver.1 pin map (Teensy 4.1)
 #define PIEZO_CENTER_PIN A2
-#define HALL_PITCH_PIN A1
 #define FSR_PIN A0
-#define VOLUME_POT_PIN A3
-#define TREBLE_POT A14
-#define BASS_POT A13
+#define VOLUME_POT_PIN A2
+#define TREBLE_POT A4
+#define BASS_POT A5
 
-// I2C (Wire.h default):
-//   SDA = Pin 18
-//   SCL = Pin 19
+// 4 Hall sensors
+#define HALL_COUNT 4
+static const uint8_t HALL_PINS[HALL_COUNT] = {A1, A8, A9, A10};
+
+// I2C (custom pins):
+//   SDA = A12
+//   SCL = A13
 
 // SPI (SPI.h default):
 //   MOSI = Pin 11
@@ -105,8 +108,10 @@ static uint16_t readAnalogSettled(uint8_t pin)
 #define PIEZO_THRESHOLD 190
 #define PIEZO_DEBOUNCE_MS 1
 
-#define HALL_MIN_ADC 700.0f
-#define HALL_MAX_ADC 1023.0f
+// ADC counts of deviation from a sensor's resting baseline that counts as "full" (norm = 1)
+#define HALL_SPAN_ADC 323.0f
+// A neighbouring sensor must beat the current winner by this much (normalised) to take over
+#define HALL_SWITCH_HYSTERESIS 0.10f
 #define HALL_QUANTIZE_THRESHOLD 0.18f
 #define HALL_QUANTIZE_STEPS 7
 #define HALL_SMOOTH_ALPHA 0.20f
@@ -140,7 +145,7 @@ public:
     envDur = envDurBase;
     envAttack = 0.001f;
     outputGain = 0.4f;
-    masterVolume = 1.0f;
+    masterVolume = 0.55f;
     fadeTime = 0.5f;
 
     phaseA = phaseB = phaseSub = 0.0f;
@@ -210,8 +215,8 @@ public:
           {
             highEnv = expf(-25.0f * envT);
           }
-          float toneH1 = 0.10f * sinf(twoPI * phaseB * 8.0f) * highEnv;
-          float toneH2 = 0.05f * sinf(twoPI * phaseB * 12.0f) * highEnv;
+          float toneH1 = 0.08f * sinf(twoPI * phaseB * 8.0f) * highEnv;
+          float toneH2 = 0.04f * sinf(twoPI * phaseB * 12.0f) * highEnv;
           tone += toneH1 + toneH2;
         }
 
@@ -220,11 +225,11 @@ public:
           float noise = ((float)random(-32768, 32767)) * (1.0f / 32768.0f);
           if (enableSlap)
           {
-            tone += noise * 0.08f * slapEnv;
+            tone += noise * 0.20f * slapEnv;
           }
           if (enableClick)
           {
-            tone += noise * clickEnv * 0.12f;
+            tone += noise * clickEnv * 0.25f;
           }
           slapEnv *= 0.995f;
           clickEnv *= 0.90f;
@@ -273,7 +278,7 @@ public:
   void setBrightness(float norm)
   {
     norm = constrain(norm, 0.0f, 1.0f);
-    float cutoffHz = 800.0f + norm * (8000.0f - 800.0f);
+    float cutoffHz = 1800.0f + norm * (11800.0f - 1800.0f);
     lpCoeff = 1.0f - expf(-twoPI * cutoffHz / sampleRate);
   }
   void setEnvDur(float v) { envDur = max(0.1f, v); }
@@ -342,7 +347,70 @@ AudioConnection patchCord2(ganGan, 0, i2s1, 1);
 // =============== GLOBAL STATE ===============
 volatile uint16_t piezoCenterPeak = 0;
 volatile uint32_t lastHitMs = 0;
+// smoothedHall = winning sensor's smoothed deviation from baseline, in ADC counts (0..HALL_SPAN_ADC)
 volatile float smoothedHall = 0.0f;
+static float hallBase[HALL_COUNT];
+static float hallSmooth[HALL_COUNT];
+static float hallPrevRaw[HALL_COUNT];
+static float hallRawDelta = 0.0f;
+static uint8_t hallWinner = 0;
+static uint16_t hallWinnerRaw = 0;
+
+static uint16_t readHallPin(uint8_t pin)
+{
+  analogRead(pin);
+  delayMicroseconds(20);
+  return analogRead(pin);
+}
+
+// Call once at boot with no magnet near any sensor
+static void hallCalibrate()
+{
+  for (uint8_t i = 0; i < HALL_COUNT; i++)
+  {
+    uint32_t sum = 0;
+    for (uint8_t n = 0; n < 16; n++)
+    {
+      sum += readHallPin(HALL_PINS[i]);
+      delay(2);
+    }
+    hallBase[i] = sum / 16.0f;
+    hallSmooth[i] = 0.0f;
+    hallPrevRaw[i] = hallBase[i];
+  }
+  hallWinner = 0;
+  hallWinnerRaw = (uint16_t)hallBase[0];
+  hallRawDelta = 0.0f;
+  smoothedHall = 0.0f;
+}
+
+// Scan all sensors; strongest-wins with hysteresis (works for either magnet polarity)
+static void hallScan()
+{
+  float maxDelta = 0.0f;
+  for (uint8_t i = 0; i < HALL_COUNT; i++)
+  {
+    float raw = (float)readHallPin(HALL_PINS[i]);
+    maxDelta = max(maxDelta, fabsf(raw - hallPrevRaw[i]));
+    hallPrevRaw[i] = raw;
+    float dev = fabsf(raw - hallBase[i]);
+    hallSmooth[i] = (1.0f - HALL_SMOOTH_ALPHA) * hallSmooth[i] + HALL_SMOOTH_ALPHA * dev;
+  }
+
+  uint8_t best = hallWinner;
+  for (uint8_t i = 0; i < HALL_COUNT; i++)
+  {
+    if (hallSmooth[i] > hallSmooth[best])
+      best = i;
+  }
+  if (best != hallWinner &&
+      (hallSmooth[best] - hallSmooth[hallWinner]) > HALL_SWITCH_HYSTERESIS * HALL_SPAN_ADC)
+    hallWinner = best;
+
+  hallRawDelta = maxDelta;
+  hallWinnerRaw = (uint16_t)hallPrevRaw[hallWinner];
+  smoothedHall = hallSmooth[hallWinner];
+}
 volatile bool inPeakState = false;
 volatile uint16_t currentFSR = 0;
 
@@ -532,6 +600,8 @@ void adxlReadAccel()
 void adxlInit()
 {
   #if ADXL_USE_I2C
+  Wire.setSDA(A12);
+  Wire.setSCL(A13);
   Wire.begin();
   Wire.setClock(400000);  // 400 kHz I2C clock
   #endif
@@ -753,14 +823,12 @@ void piezoISR()
   uint32_t now = millis();
   uint16_t piezoRaw = analogReadFast(PIEZO_CENTER_PIN);
   uint16_t fsrRaw = readAnalogSettled(FSR_PIN);
-  float hallRaw = readAnalogSettled(HALL_PITCH_PIN);
 
   // Update shared state
   piezoCenterPeak = piezoRaw;
   currentFSR = fsrRaw;
 
-  // Hall smoothing for stable pitch modulation
-  smoothedHall = (1.0f - HALL_SMOOTH_ALPHA) * smoothedHall + HALL_SMOOTH_ALPHA * hallRaw;
+  hallScan();
 
   static uint32_t lastAdxlSampleMs = 0;
 
@@ -917,7 +985,8 @@ void setup()
 
   // Sensor pins
   pinMode(PIEZO_CENTER_PIN, INPUT);
-  pinMode(HALL_PITCH_PIN, INPUT);
+  for (uint8_t i = 0; i < HALL_COUNT; i++)
+    pinMode(HALL_PINS[i], INPUT);
   pinMode(FSR_PIN, INPUT);
   pinMode(VOLUME_POT_PIN, INPUT);
   pinMode(TREBLE_POT, INPUT);
@@ -926,7 +995,7 @@ void setup()
   // Init state
   piezoCenterPeak = 0;
   lastHitMs = 0;
-  smoothedHall = readAnalogSettled(HALL_PITCH_PIN);
+  hallCalibrate();
   currentFSR = 0;
   inPeakState = false;
 
@@ -934,7 +1003,7 @@ void setup()
   
   #if ADXL_ENABLED
   #if ADXL_USE_I2C
-  Serial.println("ADXL345 protocol: I2C (SDA=18, SCL=19; address=0x53 if SD0 grounded)");
+  Serial.println("ADXL345 protocol: I2C (SDA=A12, SCL=A13; address=0x53 if SD0 grounded)");
   #elif ADXL_USE_SPI
   Serial.println("ADXL345 protocol: SPI (MOSI=11, MISO=12, SCL=13, CS=10)");
   #endif
@@ -948,9 +1017,9 @@ void setup()
   Serial.println("ADXL345: DISABLED");
   #endif
   
-  Serial.println("GPIO: A0=FSR, A1=Hall, A2=Piezo, A3/A4/A5=Pots");
-  Serial.printf("ADC pins: FSR=%d Hall=%d Piezo=%d Vol=%d Treble=%d Bass=%d\n",
-                FSR_PIN, HALL_PITCH_PIN, PIEZO_CENTER_PIN, VOLUME_POT_PIN, TREBLE_POT, BASS_POT);
+  Serial.println("GPIO: A0=FSR, A1/A8/A9/A10=Hall x4, A2=Vol, A4=Treble, A5=Bass, A12/A13=ADXL345 SDA/SCL");
+  Serial.printf("ADC pins: FSR=%d Piezo=%d Vol=%d Treble=%d Bass=%d\n",
+                FSR_PIN, PIEZO_CENTER_PIN, VOLUME_POT_PIN, TREBLE_POT, BASS_POT);
   Serial.println("Analog Hall → Base Freq | FSR → Output Gain");
   Serial.println("Press: c=continuous, h=hit-test, 3=ADXL334, 4=ADXL345, +/-=threshold");
   Serial.println("Press: 1=HighMid, 2=FastHighDecay, 5=Tanh");
@@ -960,17 +1029,13 @@ void setup()
 void loop()
 {
   piezoISR();
-  uint16_t rawHall = readAnalogSettled(HALL_PITCH_PIN);
+  uint16_t rawHall = hallWinnerRaw;
 
-  static float prevHall = 0.0f;
   static uint32_t lastReexciteMs = 0;
 
-  const float hallDelta = fabsf((float)rawHall - prevHall);
-  prevHall = (float)rawHall;
+  const float hallDelta = hallRawDelta;
 
-  float hallVal = smoothedHall;
-  float hallNorm = ((float)hallVal - HALL_MIN_ADC) / (HALL_MAX_ADC - HALL_MIN_ADC);
-  hallNorm = constrain(hallNorm, 0.0f, 1.0f);
+  float hallNorm = constrain((float)smoothedHall / HALL_SPAN_ADC, 0.0f, 1.0f);
 
   uint16_t bassRaw = readAnalogSettled(BASS_POT);
   float bassNorm = constrain((float)bassRaw / 1023.0f, 0.0f, 1.0f);
