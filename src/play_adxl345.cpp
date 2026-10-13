@@ -47,7 +47,7 @@ static uint16_t readAnalogSettled(uint8_t pin)
 #define ADXL_USE_SPI      0    // Set to 1 for SPI, 0 for I2C (mutually exclusive)
 
 // Choose ONE integration mode at compile time:
-#define ADXL_DUAL_INPUT   0    // Set to 1 to use piezo AND ADXL345, 0 for ADXL345 only
+#define ADXL_DUAL_INPUT   1    // Set to 1 to use piezo AND ADXL345, 0 for ADXL345 only
 #define ADXL_ENABLED      1    // Set to 1 to enable ADXL345, 0 to disable entirely
 
 // ADXL345 I2C Address:
@@ -109,7 +109,7 @@ static const uint8_t HALL_PINS[HALL_COUNT] = {A1, A8, A9, A10};
 #define PIEZO_DEBOUNCE_MS 1
 
 // ADC counts of deviation from a sensor's resting baseline that counts as "full" (norm = 1)
-#define HALL_SPAN_ADC 323.0f
+#define HALL_SPAN_ADC 100.0f
 // A neighbouring sensor must beat the current winner by this much (normalised) to take over
 #define HALL_SWITCH_HYSTERESIS 0.10f
 #define HALL_QUANTIZE_THRESHOLD 0.18f
