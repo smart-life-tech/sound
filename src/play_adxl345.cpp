@@ -6,7 +6,8 @@
    - FSR sensor (A0) → sustain (fade time), with hysteresis mute/cutoff
    - Piezo sensor (A2) → hit trigger
    - Volume pot (A3) → master volume
-   - Treble/Bass pots (A4/A5) → brightness/base pitch
+   - Treble pot (A4) → brightness
+   - Bass pot (A5) → fixed-frequency sub layer gain
    - ADXL345 accelerometer (I2C or SPI) → Optional hit detection
    
    ADXL345 HARDWARE PINS (Teensy 4.x):
@@ -96,7 +97,9 @@ static uint16_t readAnalogSettled(uint8_t pin)
 #define TREBLE_POT A4
 #define BASS_POT A5
 
-static uint8_t bassEnhanceStep = 0;
+static constexpr float BASS_LAYER_FREQ_HZ = 60.65f;
+static constexpr float BASS_LAYER_GAIN_MAX = 0.41f;
+static constexpr float BASS_LAYER_GAIN_INITIAL = 0.01f;
 
 // 4 Hall sensors
 #define HALL_COUNT 4
@@ -148,6 +151,8 @@ public:
     bSubFreq = 30.0f;
     bAmp = 1.0f;
     bSubStd = 0.3f;
+    bassLayerGain = BASS_LAYER_GAIN_INITIAL;
+    targetBassLayerGain = BASS_LAYER_GAIN_INITIAL;
 
     envDurBase = 0.32f;
     envDur = envDurBase;
@@ -156,7 +161,7 @@ public:
     masterVolume = 1.0f;
     fadeTime = 0.5f;
 
-    phaseA = phaseB = phaseSub = 0.0f;
+    phaseA = phaseB = phaseSub = phaseBass = 0.0f;
     sweepT = 1.0f;
     envT = 1.0f;
     active = false;
@@ -214,7 +219,12 @@ public:
           phaseSub -= floorf(phaseSub);
         float jitter = sinf(twoPI * phaseSub) * bSubStd;
         float toneB = sinf(twoPI * phaseB) * (bAmp + jitter);
-        float tone = toneB;
+        phaseBass += BASS_LAYER_FREQ_HZ * invSR;
+        if (phaseBass >= 1.0f)
+          phaseBass -= floorf(phaseBass);
+        float gainStep = (targetBassLayerGain - bassLayerGain) * (1.0f / (0.01f * sampleRate));
+        bassLayerGain += gainStep;
+        float tone = toneB + sinf(twoPI * phaseBass) * bassLayerGain;
 
         if (enableHighMid)
         {
@@ -283,6 +293,7 @@ public:
   }
 
   void setBFreq(float v) { bFreq = v; }
+  void setBassLayerGain(float v) { targetBassLayerGain = constrain(v, 0.0f, BASS_LAYER_GAIN_MAX); }
   void setBrightness(float norm)
   {
     norm = constrain(norm, 0.0f, 1.0f);
@@ -328,8 +339,9 @@ private:
   float aStartFreq, aStopFreq, aStartAmp, aStopAmp, aDuration;
   uint8_t aKnee;
   float bFreq, bSubFreq, bAmp, bSubStd;
+  float bassLayerGain, targetBassLayerGain;
   float envDur, envAttack, outputGain, fadeTime;
-  float phaseA, phaseB, phaseSub;
+  float phaseA, phaseB, phaseSub, phaseBass;
   float sweepT, envT;
   float slapEnv, clickEnv;
   bool active;
@@ -1091,9 +1103,6 @@ void setup()
   AudioMemory(12);
   audioShield.enable();
   audioShield.volume(1.0);
-  audioShield.audioPostProcessorEnable();
-  audioShield.enhanceBass(1.0f, 0.0f);
-  audioShield.enhanceBassEnable();
 
   ganGan.setBFreq(46.0f);
   ganGan.setEnvDur(0.62f);
@@ -1141,7 +1150,7 @@ void setup()
   Serial.println("GPIO: A0=FSR, A1/A8/A9/A10=Hall x4, A2=Piezo, A3=Vol, A4=Treble, A5=Bass, 26/27=ADXL345 SDA/SCL");
   Serial.printf("ADC pins: FSR=%d Piezo=%d Vol=%d Treble=%d Bass=%d\n",
                 FSR_PIN, PIEZO_CENTER_PIN, VOLUME_POT_PIN, TREBLE_POT, BASS_POT);
-  Serial.println("Hall sensors → Pitch | Bass pot → Bass enhancement | FSR → sustain");
+  Serial.println("Hall sensors → Pitch | Bass pot → 60.65 Hz sub gain | Treble pot → brightness");
   Serial.println("Press: c=continuous, h=hit-test, 3=ADXL334, 4=ADXL345, +/-=threshold");
   Serial.println("Press: 1=HighMid, 2=FastHighDecay, 5=Tanh");
 }
@@ -1189,23 +1198,7 @@ void loop()
 
   uint16_t bassRaw = readAnalogSettled(BASS_POT);
   float bassNorm = constrain((float)bassRaw / 1023.0f, 0.0f, 1.0f);
-  static uint32_t lastBassEnhanceUpdateMs = 0;
-  uint32_t bassUpdateMs = millis();
-  if (bassUpdateMs - lastBassEnhanceUpdateMs >= 10)
-  {
-    lastBassEnhanceUpdateMs = bassUpdateMs;
-    uint8_t targetStep = (uint8_t)roundf(bassNorm * 127.0f);
-    if (bassEnhanceStep < targetStep)
-    {
-      ++bassEnhanceStep;
-      audioShield.enhanceBass(1.0f, bassEnhanceStep / 127.0f);
-    }
-    else if (bassEnhanceStep > targetStep)
-    {
-      --bassEnhanceStep;
-      audioShield.enhanceBass(1.0f, bassEnhanceStep / 127.0f);
-    }
-  }
+  ganGan.setBassLayerGain(bassNorm * BASS_LAYER_GAIN_MAX);
 
   uint16_t trebleRaw = readAnalogSettled(TREBLE_POT);
   float trebleNorm = constrain((float)trebleRaw / 1023.0f, 0.0f, 1.0f);
