@@ -118,6 +118,7 @@ static const uint8_t HALL_PINS[HALL_COUNT] = {A1, A8, A9, A10};
 // ------------------- CONFIG -------------------
 #define PIEZO_THRESHOLD 190
 #define PIEZO_DEBOUNCE_MS 1
+#define HIT_OUTPUT_BOOST 2.0f
 
 // ADC counts of deviation from a sensor's resting baseline that counts as "full" (norm = 1)
 #define HALL_SPAN_ADC 100.0f
@@ -1061,6 +1062,7 @@ void piezoISR()
     }
     hitIntensity = audioHitIntensity(peak, fsrRaw);
     #endif
+    velocity = constrain(velocity * HIT_OUTPUT_BOOST, 0.0f, 1.0f);
     if (gHitTestEnabled)
     {
       #if ADXL_ENABLED
