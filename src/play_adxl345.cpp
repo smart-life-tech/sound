@@ -173,7 +173,7 @@ public:
     enableFastHighDecay = false;
     enableSlap = false;
     enableClick = false;
-    enableTanh = false;
+    enableTanh = true;
 
     sampleRate = AUDIO_SAMPLE_RATE_EXACT;
     twoPI = 2.0f * M_PI;
