@@ -96,6 +96,8 @@ static uint16_t readAnalogSettled(uint8_t pin)
 #define TREBLE_POT A4
 #define BASS_POT A5
 
+static uint8_t bassEnhanceStep = 0;
+
 // 4 Hall sensors
 #define HALL_COUNT 4
 static const uint8_t HALL_PINS[HALL_COUNT] = {A1, A8, A9, A10};
@@ -1089,6 +1091,9 @@ void setup()
   AudioMemory(12);
   audioShield.enable();
   audioShield.volume(1.0);
+  audioShield.audioPostProcessorEnable();
+  audioShield.enhanceBass(1.0f, 0.0f);
+  audioShield.enhanceBassEnable();
 
   ganGan.setBFreq(46.0f);
   ganGan.setEnvDur(0.62f);
@@ -1136,7 +1141,7 @@ void setup()
   Serial.println("GPIO: A0=FSR, A1/A8/A9/A10=Hall x4, A2=Piezo, A3=Vol, A4=Treble, A5=Bass, 26/27=ADXL345 SDA/SCL");
   Serial.printf("ADC pins: FSR=%d Piezo=%d Vol=%d Treble=%d Bass=%d\n",
                 FSR_PIN, PIEZO_CENTER_PIN, VOLUME_POT_PIN, TREBLE_POT, BASS_POT);
-  Serial.println("Analog Hall → Base Freq | FSR → Output Gain");
+  Serial.println("Hall sensors → Pitch | Bass pot → Bass enhancement | FSR → sustain");
   Serial.println("Press: c=continuous, h=hit-test, 3=ADXL334, 4=ADXL345, +/-=threshold");
   Serial.println("Press: 1=HighMid, 2=FastHighDecay, 5=Tanh");
 }
@@ -1184,15 +1189,30 @@ void loop()
 
   uint16_t bassRaw = readAnalogSettled(BASS_POT);
   float bassNorm = constrain((float)bassRaw / 1023.0f, 0.0f, 1.0f);
-  // The PCB pot is wired so a high ADC reading selects the low bass endpoint.
-  float baseFreq = 110.0f - (110.0f - 70.0f) * bassNorm;
-  baseFreq = constrain(baseFreq, 70.0f, 110.0f);
+  static uint32_t lastBassEnhanceUpdateMs = 0;
+  uint32_t bassUpdateMs = millis();
+  if (bassUpdateMs - lastBassEnhanceUpdateMs >= 10)
+  {
+    lastBassEnhanceUpdateMs = bassUpdateMs;
+    uint8_t targetStep = (uint8_t)roundf(bassNorm * 127.0f);
+    if (bassEnhanceStep < targetStep)
+    {
+      ++bassEnhanceStep;
+      audioShield.enhanceBass(1.0f, bassEnhanceStep / 127.0f);
+    }
+    else if (bassEnhanceStep > targetStep)
+    {
+      --bassEnhanceStep;
+      audioShield.enhanceBass(1.0f, bassEnhanceStep / 127.0f);
+    }
+  }
 
   uint16_t trebleRaw = readAnalogSettled(TREBLE_POT);
   float trebleNorm = constrain((float)trebleRaw / 1023.0f, 0.0f, 1.0f);
   ganGan.setBrightness(trebleNorm);
 
   float hallFreq;
+  const float baseFreq = HALL_FREQ_MIN_HZ;
   if (hallNorm >= HALL_QUANTIZE_THRESHOLD)
   {
     float stepsF = (float)HALL_QUANTIZE_STEPS;
