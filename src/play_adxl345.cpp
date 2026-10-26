@@ -118,7 +118,8 @@ static const uint8_t HALL_PINS[HALL_COUNT] = {A1, A8, A9, A10};
 // ------------------- CONFIG -------------------
 #define PIEZO_THRESHOLD 190
 #define PIEZO_DEBOUNCE_MS 1
-#define HIT_OUTPUT_BOOST 2.0f
+#define HIT_OUTPUT_BOOST 1.0f
+#define PIEZO_FULL_SCALE 500
 
 // ADC counts of deviation from a sensor's resting baseline that counts as "full" (norm = 1)
 #define HALL_SPAN_ADC 100.0f
@@ -947,25 +948,31 @@ void piezoISR()
 {
   uint32_t now = millis();
   uint16_t piezoRaw = analogReadFast(PIEZO_CENTER_PIN);
-  uint16_t fsrRaw = readAnalogSettled(FSR_PIN);
+  static bool armed = true;
+  static uint32_t lastHitTime = 0;
 
-  // Update shared state
+  // Skip the slow sensor reads when a hit is waiting, so the piezo peak isn't missed.
+  bool hitPending = armed && !continuousPlayback && (piezoRaw >= PIEZO_THRESHOLD);
+  uint16_t fsrRaw = currentFSR;
+
   piezoCenterPeak = piezoRaw;
-  currentFSR = fsrRaw;
-
-  hallScan();
 
   static uint32_t lastAdxlSampleMs = 0;
-
-  // Read ADXL345 at the same 200 Hz rate as the validated hit-test sketch.
-  #if ADXL_ENABLED
-  if (now - lastAdxlSampleMs >= ADXL_SAMPLE_INTERVAL_MS)
+  if (!hitPending)
   {
-    lastAdxlSampleMs = now;
-    adxlReadAccel();
-    adxlAutoCalibrateOrientation(now);
+    fsrRaw = readAnalogSettled(FSR_PIN);
+    currentFSR = fsrRaw;
+    hallScan();
+
+    #if ADXL_ENABLED
+    if (now - lastAdxlSampleMs >= ADXL_SAMPLE_INTERVAL_MS)
+    {
+      lastAdxlSampleMs = now;
+      adxlReadAccel();
+      adxlAutoCalibrateOrientation(now);
+    }
+    #endif
   }
-  #endif
 
   // During ADXL-only operation, suppress hits while a new orientation is
   // being calibrated. In dual mode, keep piezo hits available meanwhile.
@@ -977,9 +984,6 @@ void piezoISR()
   // If continuous playback is enabled, skip hit detection
   if (continuousPlayback)
     return;
-
-  static bool armed = true;
-  static uint32_t lastHitTime = 0;
 
   const int LOWER_RESET = PIEZO_THRESHOLD * 0.3f;
   const int LOCKOUT_MS = ADXL_HIT_COOLDOWN_MS;
@@ -993,11 +997,8 @@ void piezoISR()
   // 2. Re-arm only when the active trigger source is fully quiet
   if (!armed)
   {
-    bool adxlReady = (adxl_magnitude <= gAdxlThreshold * ADXL_REARM_RATIO);
-    #if ADXL_ENABLED && ADXL_DUAL_INPUT
-    if ((piezoRaw < LOWER_RESET) && adxlReady)
-    #elif ADXL_ENABLED && !ADXL_DUAL_INPUT
-    if (adxlReady)
+    #if ADXL_ENABLED && !ADXL_DUAL_INPUT
+    if (adxl_magnitude <= gAdxlThreshold * ADXL_REARM_RATIO)
     #else
     if (piezoRaw < LOWER_RESET)
     #endif
@@ -1018,9 +1019,9 @@ void piezoISR()
   // ADXL345 only mode
   hitDetected = (adxl_magnitude >= gAdxlThreshold);
   #elif ADXL_ENABLED && ADXL_DUAL_INPUT
-  // Dual input: trigger on either piezo OR ADXL345
+  // Dual input: only the piezo triggers; the ADXL345 scales amplitude
   piezoHit = (piezoRaw >= PIEZO_THRESHOLD);
-  hitDetected = piezoHit || (adxl_magnitude >= gAdxlThreshold);
+  hitDetected = piezoHit;
   #else
   // Piezo only (ADXL disabled)
   hitDetected = (piezoRaw >= PIEZO_THRESHOLD);
@@ -1036,12 +1037,23 @@ void piezoISR()
     uint16_t peak = piezoRaw;
     uint32_t captureStart = micros();
     const uint32_t PEAK_CAPTURE_US = 1500;
+    float adxlPeak = adxl_magnitude;
     while (micros() - captureStart < PEAK_CAPTURE_US)
     {
       uint16_t sample = analogReadFast(PIEZO_CENTER_PIN);
       if (sample > peak)
         peak = sample;
     }
+    #if ADXL_ENABLED && ADXL_DUAL_INPUT
+    // Sample the ADXL over the impact so its peak is included
+    for (int i = 0; i < 3; i++)
+    {
+      adxlReadAccel();
+      if (adxl_magnitude > adxlPeak)
+        adxlPeak = adxl_magnitude;
+    }
+    adxl_magnitude = adxlPeak;
+    #endif
     piezoCenterPeak = peak;
 
     float velocity;
@@ -1050,19 +1062,15 @@ void piezoISR()
     velocity = 0.15f + 0.85f * adxlHitIntensity(adxl_magnitude);
     hitIntensity = velocity;
     #else
-    if (piezoHit)
+    // Linear: piezo peak (weight 0.7) + ADXL peak (weight 0.3), each normalised to full scale
     {
-      velocity = (float)(peak - PIEZO_THRESHOLD) / (float)(1023 - PIEZO_THRESHOLD);
-      velocity = constrain(velocity, 0.0f, 1.0f);
-      velocity = 0.15f + velocity * 0.85f;
-    }
-    else
-    {
-      velocity = 0.15f + 0.85f * adxlHitIntensity(adxl_magnitude);
+      float pN = constrain((float)(peak - PIEZO_THRESHOLD) / (float)(PIEZO_FULL_SCALE - PIEZO_THRESHOLD), 0.0f, 1.0f);
+      float aN = constrain(adxl_magnitude / ADXL_HIT_MAX_G, 0.0f, 1.0f);
+      velocity = 0.7f * pN + 0.3f * aN;
     }
     hitIntensity = audioHitIntensity(peak, fsrRaw);
     #endif
-    velocity = constrain(velocity * HIT_OUTPUT_BOOST, 0.0f, 1.0f);
+    velocity = constrain(velocity * HIT_OUTPUT_BOOST, 0.02f, 1.0f);
     if (gHitTestEnabled)
     {
       #if ADXL_ENABLED
