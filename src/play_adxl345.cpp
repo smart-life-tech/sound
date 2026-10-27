@@ -460,7 +460,7 @@ float adxlFilteredDynamic = 0.0f;
 bool adxlBaselineReady = false;
 
 const uint32_t ADXL_SAMPLE_INTERVAL_MS = 5;
-const uint32_t ADXL_HIT_COOLDOWN_MS = 80;
+const uint32_t ADXL_HIT_COOLDOWN_MS = 35;
 const uint32_t ADXL_RECALIBRATION_TIME_MS = 10000;
 const float ADXL_FILTER_ALPHA = 0.25f;
 const float ADXL_REARM_RATIO = 0.45f;
@@ -994,13 +994,15 @@ void piezoISR()
     armed = false;
   }
 
-  // 2. Re-arm only when the active trigger source is fully quiet
+  // 2. Re-arm only when the piezo has settled and, if relevant, the ADXL is quiet.
   if (!armed)
   {
+    bool piezoQuiet = (piezoRaw < LOWER_RESET);
+    bool adxlQuiet = (adxl_magnitude <= gAdxlThreshold * ADXL_REARM_RATIO);
     #if ADXL_ENABLED && !ADXL_DUAL_INPUT
-    if (adxl_magnitude <= gAdxlThreshold * ADXL_REARM_RATIO)
+    if (adxlQuiet)
     #else
-    if (piezoRaw < LOWER_RESET)
+    if (piezoQuiet)
     #endif
     {
       armed = true;
