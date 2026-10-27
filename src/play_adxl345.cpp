@@ -116,7 +116,7 @@ static const uint8_t HALL_PINS[HALL_COUNT] = {A1, A8, A9, A10};
 //   CS   = Pin 10 (ADXL_CS_PIN)
 
 // ------------------- CONFIG -------------------
-#define PIEZO_THRESHOLD 10
+#define PIEZO_THRESHOLD 14
 #define PIEZO_DEBOUNCE_MS 1
 #define HIT_OUTPUT_BOOST 1.0f
 #define PIEZO_FULL_SCALE 500
