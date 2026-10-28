@@ -98,7 +98,7 @@ static uint16_t readAnalogSettled(uint8_t pin)
 #define BASS_POT A5
 
 static constexpr float BASS_LAYER_FREQ_HZ = 60.65f;
-static constexpr float BASS_LAYER_GAIN_MAX = 0.85f;
+static constexpr float BASS_LAYER_GAIN_MAX = 0.41f;
 static constexpr float BASS_LAYER_GAIN_INITIAL = 0.01f;
 
 // 4 Hall sensors
@@ -153,6 +153,7 @@ public:
     bSubFreq = 30.0f;
     bAmp = 1.0f;
     bSubStd = 0.3f;
+    brightness = 0.50f;
     bassLayerGain = BASS_LAYER_GAIN_INITIAL;
     targetBassLayerGain = BASS_LAYER_GAIN_INITIAL;
 
@@ -170,11 +171,11 @@ public:
 
     slapEnv = 0.0f;
     clickEnv = 0.0f;
-    enableHighMid = false;
+    enableHighMid = true;
     enableFastHighDecay = false;
     enableSlap = false;
     enableClick = false;
-    enableTanh = true;
+    enableTanh = false;
 
     sampleRate = AUDIO_SAMPLE_RATE_EXACT;
     twoPI = 2.0f * M_PI;
@@ -220,14 +221,16 @@ public:
         if (phaseSub >= 1.0f)
           phaseSub -= floorf(phaseSub);
         float jitter = sinf(twoPI * phaseSub) * bSubStd;
-        float toneB = sinf(twoPI * phaseB) * (bAmp + jitter);
+        float bodyGain = 0.80f;
+        float toneB = sinf(twoPI * phaseB) * (bAmp + jitter) * bodyGain;
         phaseBass += BASS_LAYER_FREQ_HZ * invSR;
         if (phaseBass >= 1.0f)
           phaseBass -= floorf(phaseBass);
         float gainStep = (targetBassLayerGain - bassLayerGain) * (1.0f / (0.01f * sampleRate));
         bassLayerGain += gainStep;
         float subTone = sinf(twoPI * phaseBass) * bassLayerGain;
-        float tone = toneB + subTone * 2.6f;
+
+        float tone = toneB + subTone;
 
         if (enableHighMid)
         {
@@ -238,7 +241,7 @@ public:
           }
           float toneH1 = 0.08f * sinf(twoPI * phaseB * 8.0f) * highEnv;
           float toneH2 = 0.04f * sinf(twoPI * phaseB * 12.0f) * highEnv;
-          tone += toneH1 + toneH2;
+          tone += (toneH1 + toneH2) * brightness;
         }
 
         if (enableSlap || enableClick)
@@ -246,15 +249,20 @@ public:
           float noise = ((float)random(-32768, 32767)) * (1.0f / 32768.0f);
           if (enableSlap)
           {
-            tone += noise * 0.20f * slapEnv;
+            tone += noise * 0.95f * brightness * slapEnv;
           }
           if (enableClick)
           {
-            tone += noise * clickEnv * 0.25f;
+            tone += noise * 0.50f * brightness * clickEnv;
           }
           slapEnv *= 0.995f;
           clickEnv *= 0.90f;
         }
+
+        float trebleHighGain = 0.15f;
+        float trebleHighEnv = 1.0f;
+        float highTone = sinf(twoPI * phaseB * 16.0f) * trebleHighGain * brightness * trebleHighEnv;
+        tone += highTone;
 
         envT += invSR;
         float envNorm = envT / envDur;
@@ -300,6 +308,7 @@ public:
   void setBrightness(float norm)
   {
     norm = constrain(norm, 0.0f, 1.0f);
+    brightness = norm;
     float cutoffHz = 1800.0f + norm * (11800.0f - 1800.0f);
     lpCoeff = 1.0f - expf(-twoPI * cutoffHz / sampleRate);
   }
@@ -343,7 +352,7 @@ private:
   uint8_t aKnee;
   float bFreq, bSubFreq, bAmp, bSubStd;
   float bassLayerGain, targetBassLayerGain;
-  float envDur, envAttack, outputGain, fadeTime;
+  float envDur, envAttack, outputGain, fadeTime, brightness;
   float phaseA, phaseB, phaseSub, phaseBass;
   float sweepT, envT;
   float slapEnv, clickEnv;
@@ -1211,7 +1220,6 @@ void loop()
 
   uint16_t bassRaw = readAnalogSettled(BASS_POT);
   float bassNorm = constrain((float)bassRaw / 1023.0f, 0.0f, 1.0f);
-  bassNorm = powf(bassNorm, 1.8f);
   ganGan.setBassLayerGain(bassNorm * BASS_LAYER_GAIN_MAX);
 
   uint16_t trebleRaw = readAnalogSettled(TREBLE_POT);
