@@ -98,7 +98,7 @@ static uint16_t readAnalogSettled(uint8_t pin)
 #define BASS_POT A5
 
 static constexpr float BASS_LAYER_FREQ_HZ = 60.65f;
-static constexpr float BASS_LAYER_GAIN_MAX = 0.41f;
+static constexpr float BASS_LAYER_GAIN_MAX = 0.85f;
 static constexpr float BASS_LAYER_GAIN_INITIAL = 0.01f;
 
 // 4 Hall sensors
@@ -226,7 +226,8 @@ public:
           phaseBass -= floorf(phaseBass);
         float gainStep = (targetBassLayerGain - bassLayerGain) * (1.0f / (0.01f * sampleRate));
         bassLayerGain += gainStep;
-        float tone = toneB + sinf(twoPI * phaseBass) * bassLayerGain;
+        float subTone = sinf(twoPI * phaseBass) * bassLayerGain;
+        float tone = toneB + subTone * 2.6f;
 
         if (enableHighMid)
         {
@@ -1210,6 +1211,7 @@ void loop()
 
   uint16_t bassRaw = readAnalogSettled(BASS_POT);
   float bassNorm = constrain((float)bassRaw / 1023.0f, 0.0f, 1.0f);
+  bassNorm = powf(bassNorm, 1.8f);
   ganGan.setBassLayerGain(bassNorm * BASS_LAYER_GAIN_MAX);
 
   uint16_t trebleRaw = readAnalogSettled(TREBLE_POT);
